@@ -324,14 +324,19 @@ combined_tables[[study_id]] <- tbl
 
 so_fn <- file.path(data_dir, study_id, "so.rds")
 if(!file.exists(so_fn)){
+  load(file.path(data_dir, study_id, "data",
+                "EpiHiRes_seurat.RData"))
+  so <- UpdateSeuratObject(subset)
+  
+  saveRDS(so, file.path(data_dir, study_id, "so.rds"))
   # figure 2, matches publication
   load(file.path(data_dir, study_id, "data",
                  "Whole_lung_seurat_alveolar_epithelium.RData"))
   
   so <- UpdateSeuratObject(seu)
-  saveRDS(so, file.path(data_dir, study_id, "so.rds"))
+  saveRDS(so, file.path(data_dir, study_id, "so_subset.rds"))
 }
-so <- readRDS(file.path(data_dir, study_id, "so.rds"))
+so <- readRDS(file.path(data_dir, study_id, "so_subset.rds"))
 Idents(so) <- "cell_type"
 avg_expr <-  AverageExpression(so)$RNA
 
@@ -491,7 +496,7 @@ Heatmap(cres)
 
 ## Try to co-embed all mouse data
 
-```{r}
+```{r, harmonize, cache.lazy=FALSE}
 
 obj_dir <- "objects"
 dir.create(obj_dir)
