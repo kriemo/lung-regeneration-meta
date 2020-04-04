@@ -417,7 +417,7 @@ combined_markers <- readRDS(file.path('processed_data', "gene_lists.rds"))
 
 library(eulerr)
 
-fit <- venn(combined_markers[3:6])
+fit <- venn(combined_markers[4:7])
 pdf(file.path(fig_dir, "marker_overlap_mouse_studies.pdf"))
 plot(fit, 
      labels = TRUE,
@@ -427,7 +427,7 @@ plot(fit,
 dev.off()
 
 
-fit <- euler(combined_markers[1:2])
+fit <- euler(combined_markers[1:3])
 pdf(file.path(fig_dir, "marker_overlap_human_studies.pdf"))
 plot(fit, 
      labels = TRUE,
@@ -441,9 +441,9 @@ dev.off()
 ```{r}
 library(UpSetR)
 
-upset(fromList(combined_markers[3:6]))
+upset(fromList(combined_markers[4:7]))
 pdf(file.path(fig_dir, "marker_overlap_mouse_studies_upset_plot.pdf"))
-  upset(fromList(combined_markers[3:6]))
+  upset(fromList(combined_markers[4:7]))
 dev.off()
 
 upset(fromList(combined_markers), nsets = 6, nintersect = 50)
@@ -544,6 +544,45 @@ so <- readRDS(file.path(obj_dir, "harmonized.rds"))
 ## Integrated UMAPs Krt8/18 markers {.tabset}
 
 ```{r, cache.lazy = FALSE}
+
+```
+
+```{r, results="asis", cache.lazy = FALSE}
+to_plot <- c("study")
+
+umap_dir <- file.path(fig_dir, "umaps")
+dir.create(umap_dir, showWarnings = FALSE)
+walk(to_plot, 
+    function(x){
+      cat("\n### ", x, "\n")
+      p <- plot_harmony(so, x, group = "study", sorted = "random")
+      print(p)
+      save_plot(file.path(umap_dir, str_c(x, "_split.pdf")),
+                p,
+                base_asp = 1.75)
+      cat('  \n')
+    })
+```
+
+```{r, results="asis", cache.lazy = FALSE}
+to_plot <- c("Hopx",
+             )
+
+umap_dir <- file.path(fig_dir, "umaps")
+dir.create(umap_dir, showWarnings = FALSE)
+walk(to_plot, 
+    function(x){
+      cat("\n### ", x, "\n")
+      p <- plot_harmony(so, x, group = "study", sorted = "random")
+      print(p)
+      save_plot(file.path(umap_dir, str_c(x, "_split.pdf")),
+                p,
+                base_asp = 1.2)
+      cat('  \n')
+    })
+```
+
+```{r, results="asis", cache.lazy = FALSE}
 to_plot <- c("S100a6",
              "Sfn",
              "Tmsb10",
@@ -564,14 +603,17 @@ to_plot <- c("S100a6",
              "Lgals3",
              "Hspb1",
              "2200002D01Rik")
-```
 
-```{r, results="asis", cache.lazy = FALSE}
+umap_dir <- file.path(fig_dir, "umaps")
+dir.create(umap_dir, showWarnings = FALSE)
 walk(to_plot, 
     function(x){
       cat("\n### ", x, "\n")
       p <- plot_harmony(so, x, group = "study", sorted = "random")
       print(p)
+      save_plot(file.path(umap_dir, str_c(x, "_split.pdf")),
+                p,
+                base_asp = 1.2)
       cat('  \n')
     })
 ```
