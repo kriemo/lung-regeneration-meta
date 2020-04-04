@@ -199,11 +199,34 @@ combined_tables[[study_id]] <- tbl
 so_fn <- file.path(data_dir, study_id, "so.rds")
 if(!file.exists(so_fn)){
   load(file.path(data_dir, study_id, "AT2_clean.Robj"))
-  saveRDS(AT2_clean, so_fn)
+  AT2_clean$pub_clusters <- Idents(AT2_clean)
+  
+  # get data from UCSC cellbrowser
+  mat <- read_tsv(file.path(data_dir, 
+                            study_id, 
+                            "data", 
+                            "full-exprMatrix.tsv.gz"))
+  mat <- column_to_rownames(mat, "gene") 
+  mat <- as.matrix(mat)
+  mat <- as(mat, "sparseMatrix")
+  
+  mdata <- read_tsv(file.path(data_dir, 
+                            study_id, 
+                            "data", 
+                            "full-meta.tsv"))
+  mdata <- column_to_rownames(mdata, "Cell") %>% 
+    as.data.frame()
+  
+  so <- CreateSeuratObject(mat, meta.data = mdata)
+  at1 <- subset(so, subset = Cluster == "AT1")
+  at1$pub_clusters <- "AT1"
+  at1@meta.data <- at1@meta.data[, c("orig.ident", "pub_clusters")]  
+  so <- merge(AT2_clean, at1)
+  Idents(so) <- "pub_clusters"
+  saveRDS(so, so_fn)
 }
 
 so <- readRDS(so_fn)
-
 avg_expr <-  AverageExpression(so)$RNA
 #avg_expr <- avg_expr[, "AT2_3", drop = FALSE]
 colnames(avg_expr) <- paste0(study_id, "::", colnames(avg_expr))
@@ -327,16 +350,39 @@ if(!file.exists(so_fn)){
   load(file.path(data_dir, study_id, "data",
                 "EpiHiRes_seurat.RData"))
   so <- UpdateSeuratObject(subset)
+  #13 = AT1?
+  #4 and 9 = TD
+  #3 = naive ATII(d14_PBS)
+  new_ids <- c(
+    "9" = "Krt8_c9-timecourse",
+    "4" = "Krt8_c4-timecourse",
+    "13" = "AT1-timecourse",
+    "3" = "ATII-timecourse"
+  )
+  so$cell_type <- ifelse(so$res.1 %in% names(new_ids),
+                         new_ids[so$res.1],
+                         "other")
+  so <- subset(so, subset = cell_type != "other")
+  Idents(so) <- "cell_type"
   
-  saveRDS(so, file.path(data_dir, study_id, "so.rds"))
   # figure 2, matches publication
   load(file.path(data_dir, study_id, "data",
                  "Whole_lung_seurat_alveolar_epithelium.RData"))
   
-  so <- UpdateSeuratObject(seu)
-  saveRDS(so, file.path(data_dir, study_id, "so_subset.rds"))
+  so_subset <- UpdateSeuratObject(seu)
+  so_subset$cell_type <- case_when(
+    so_subset$cell_type == "AT1 Cells" ~ "AT1-whole-lung",
+    so_subset$cell_type == "AT2 after Injury" ~ "AT2-injured-whole-lung",
+    so_subset$cell_type == "AT2 Cells" ~ "AT2-whole-lung",
+    so_subset$cell_type == "Regenerating Epithelium" ~ "Krt8-whole-lung"
+    )
+  # saveRDS(so_subset, file.path(data_dir, study_id, "so_subset.rds"))
+  so <- merge(so, so_subset)
+  
+  saveRDS(so, file.path(data_dir, study_id, "so.rds"))
+  
 }
-so <- readRDS(file.path(data_dir, study_id, "so_subset.rds"))
+so <- readRDS(file.path(data_dir, study_id, "so.rds"))
 Idents(so) <- "cell_type"
 avg_expr <-  AverageExpression(so)$RNA
 
@@ -370,12 +416,14 @@ colnames(avg_expr_d7)[2:3] <- paste0(study_id, "::", colnames(avg_expr_d7)[2:3],
 so_fn <- file.path(data_dir, study_id, "so.rds")
 if(!file.exists(so_fn)){
   # also process d21 data
-  mat <- read_csv(file.path(data_dir,  names(studies)[7], "matrix.tsv.gz"))
+  mat <- read_csv(file.path(data_dir,  study_id, "matrix.tsv.gz"))
   mat <- column_to_rownames(mat, "X1") 
   mat <- as.matrix(mat)
   mat <- as(mat, "sparseMatrix")
+
   
-  mdata <- read_csv(file.path(data_dir,  names(studies)[7], "meta_info_C0_C7_C21.csv")) %>% 
+  
+  mdata <- read_csv(file.path(data_dir, study_id, "meta_info_C0_C7_C21.csv")) %>% 
     dplyr::select(cell = X1, sample_name, cell_type) %>% 
     filter(cell %in% colnames(mat)) %>% 
     as.data.frame() %>% 
@@ -384,6 +432,35 @@ if(!file.exists(so_fn)){
   mat <- mat[, rownames(mdata)]
   so <- CreateSeuratObject(mat, meta.data = mdata) %>% 
     NormalizeData()
+  
+  
+    # also process at1 cells from previous pub (no metadata :( )
+  at1_mat <- read_csv(file.path(data_dir,  study_id, "at1_data", "GSM2858341_AT1_P60.exprs.csv"))
+  at1_mat <- column_to_rownames(at1_mat, "X1") %>% 
+    as.matrix(.) %>% 
+    as(., "sparseMatrix")
+  so_at1 <- CreateSeuratObject(at1_mat)
+  so_at1 <- FindVariableFeatures(so_at1) %>% 
+    ScaleData() %>% 
+    RunPCA(seed.value = 42) %>% 
+    RunUMAP(dims = 1:10, seed.value = 42) %>% 
+    FindNeighbors() %>% 
+    FindClusters(resolution = c(0.05, 0.1, 0.2), random.seed = 42)
+  so_at1$cell_type <- ifelse(so_at1$RNA_snn_res.0.2 %in% c("0", "1", "2", "4"),
+                             "AT1",
+                             "other")
+  so_at1 <- subset(so_at1, 
+                   subset = cell_type == "AT1")
+  # get rid of a few outliers
+  to_drop <- c("CAGGTGCCATTACGAC",
+    "CTAGCCTGTGTTTGGT",
+    "GTACGTAGTTCCGGCA",
+    "TGGGAAGAGAAGAAGC")
+
+  so_at1 <- subset(so_at1, cells = to_drop, invert = TRUE)
+  
+  so <- merge(so, so_at1)
+  
   saveRDS(so, so_fn)
 }
 
@@ -391,7 +468,7 @@ so <- readRDS(so_fn)
 Idents(so) <- "cell_type"
 avg_expr <- AverageExpression(so)$RNA
 #avg_expr <- avg_expr[, "population II", drop = FALSE]
-colnames(avg_expr) <- paste0(study_id, "::", colnames(avg_expr), "_d21")
+colnames(avg_expr)[2:3] <- paste0(study_id, "::", colnames(avg_expr)[2:3], "_d21")
 avg_expr <- rownames_to_column(avg_expr, "mouse_gene_name")
 avg_expr_d21 <- left_join(avg_expr, orthologs, by = "mouse_gene_name")
 avg_expr <- left_join(avg_expr_d21, avg_expr_d7, by = "mouse_gene_name")
@@ -454,7 +531,7 @@ dev.off()
 
 
 ## Average expression per cluster
-```{r, eval = FALSE}
+```{r}
 combined_expression <- readRDS(file.path(formatted_data_dir, "avg_expression.rds"))
 
 
@@ -466,6 +543,7 @@ combined_expr <- imap(combined_expression[3:6], ~.x[!is.na(.x$mouse_gene_name), 
       dplyr::select(mouse_gene_name, contains(.y)) %>% 
       column_to_rownames("mouse_gene_name") %>% 
         .[shared_genes, , drop = FALSE]) %>% 
+  unname() %>% 
   do.call(cbind, .)
 
 combined_expr <- combined_expr[rowSums(is.na(combined_expr)) == 0, ]
@@ -473,8 +551,10 @@ combined_expr <- combined_expr[rowSums(is.na(combined_expr)) == 0, ]
 cres <- cor(combined_expr, method = "pearson")
 library(ComplexHeatmap)
 Heatmap(cres)
+```
 
-
+## Human
+```{r}
 
 shared_genes <- map(combined_expression[1:2], ~.x$human_gene_name) %>% Reduce(intersect, .)
 
@@ -489,7 +569,6 @@ combined_expr <- imap(combined_expression[1:2], ~.x[!is.na(.x$human_gene_name), 
 combined_expr <- combined_expr[rowSums(is.na(combined_expr)) == 0, ]
 
 cres <- cor(combined_expr, method = "pearson")
-library(ComplexHeatmap)
 Heatmap(cres)
 ```
 
