@@ -9,3 +9,7 @@
 *.pdf
 docs
 data
+cellbrowser
+figs
+processed_data
+.DS_Store
