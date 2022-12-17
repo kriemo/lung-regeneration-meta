@@ -1,0 +1,544 @@
+---
+title: "Meta-analysis of murine lung regeneration studies"
+author: "Kent Riemondy"
+date: "`r Sys.Date()`"
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "html") })
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: cosmo
+    highlight: kate
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(cache = FALSE)
+```
+
+```{r}
+library(ComplexHeatmap)
+library(SingleCellExperiment)
+library(scran)
+library(scuttle)
+library(scater)
+library(batchelor)
+library(data.table)
+library(here)
+library(openxlsx)
+library(cowplot)
+data_dir <- here("data")
+formatted_data_dir <- "processed_data"
+fig_dir <- "figs"
+obj_dir <- "objects"
+```
+
+## Reintegrate  mouse data
+
+```{r}
+studies_to_integrate <- c(
+  "Kobayashi_et_al_ncb",
+  "Riemondy_et_al_JCI-insight",
+  "Strunz_et_al_nc")
+
+study_specific_cell_types <- list(
+  "Kobayashi_et_al_ncb" = c(
+    "AEC1",
+    "AEC2",
+    "PATS-2",
+    "PATS-1",
+    "AEC2-proliferating"
+  ),
+  "Riemondy_et_al_JCI-insight" =   c(
+    "Naive AEC1",
+    "Naive AEC2",
+    "Injured AEC2: Early Transdifferentiating",
+    "Injured AEC2: Late Transdifferentiating",
+    "Injured AEC2: Proliferating",
+    "Other Injured AEC2"
+  ),
+  "Strunz_et_al_nc" =  c(
+    "Krt8+ ADI",
+    "Activated AT2 cells",
+    "AT1",
+    "AT2",
+    "Mki67+ Proliferation"
+  )
+)
+
+# cell type mapping used for scANVI
+
+map_to_coarse <- c(`PATS-2` = "Transitional",
+                   `PATS-1` = "Transitional",
+                   `Injured AEC2: Early Transdifferentiating` = "Transitional", 
+                   `Injured AEC2: Late Transdifferentiating` = "Transitional",
+                   `Krt8+ ADI` = "Transitional", 
+                   `Naive AEC1` = "AEC1",
+                   AEC1 = "AEC1", 
+                   AT1 = "AEC1", 
+                   AT2 = "AEC2", 
+                   AEC2 = "AEC2", 
+                   `Naive AEC2` = "AEC2",
+                   `Other Injured AEC2` = "AEC2", 
+                   `AEC2-proliferating` = "proliferating", 
+                   `Mki67+ Proliferation` = "proliferating", 
+                   `Injured AEC2: Proliferating` = "proliferating")
+  
+#old_so <- readRDS(here("results/2021-analysis/objects/harmonized.rds"))
+```
+
+
+```{r}
+library(bluster)
+get_correction_statistics <- function(sce,
+                                      clusters,
+                                      batch = "study",
+                                      og_cells = "cell_type"){
+  studies <- unique(sce$study)
+  aris <- vector("list", 3)
+  for(i in seq_along(studies)){
+    s <- as.character(studies[i])
+    aris[[i]] <- pairwiseRand(clusters[sce[[batch]] == s], 
+                             sce[[og_cells]][sce[[batch]] == s],
+                             mode="index")
+    names(aris)[i] <- s
+  }
+  aris
+}
+
+
+plot_correction_umaps <- function(sce){
+  p1 <- plotUMAP(sce, 
+         point_size = 0.5, 
+         colour_by = "cell_type", 
+         other_fields = "study") + 
+     facet_wrap(~study)
+
+  p2 <- plotUMAP(sce,
+         point_size = 0.5, 
+         colour_by = "cell_type",
+         order_by = "random_order")
+  
+  to_plot <- c(
+    "Sftpc",
+    "Pdpn",
+    "Scgb1a1",
+    "Mki67",
+
+    "Cldn4",
+    "Sfn",
+    "Hopx",
+    "Igfbp2",
+    "Krt8"
+  )
+  gplots <- lapply(to_plot, function(x){
+    plotUMAP(sce,
+         point_size = 0.5, 
+         colour_by = x,
+         order_by = x)
+  })
+  names(gplots) <- to_plot
+  
+  cca_to_plot <- c(
+    "Cdkn1a",
+    "Cdkn2a",
+    "Cdkn2b",
+    "Trp53",
+
+    "Pdlim7",
+    "Mcam",
+    "Krt17",
+    "Sox4",
+    "Itga2",
+    "Palld"
+  )
+  
+    ccaplots <- lapply(cca_to_plot, function(x){
+    plotUMAP(sce,
+         point_size = 0.5, 
+         colour_by = x,
+         order_by = x)
+  })
+  names(ccaplots) <- cca_to_plot
+
+ list(by_study = p1, 
+       all = p2,
+      genes = gplots,
+      cca_genes = ccaplots)
+}
+  
+```
+
+## No batch correction
+
+```{r}
+seed_val <- 20221127
+sce_fn <-  file.path(obj_dir, "uc_sce.rds")
+
+if(!file.exists(sce_fn)){
+  
+  bpp <- BiocParallel::MulticoreParam(6)
+  sces <- lapply(studies_to_integrate, function(x) readRDS(file.path(data_dir, x, "sce.rds")))
+  names(sces) <- studies_to_integrate
+  study_dat <- list(cols = c("cell_type",
+                     "pretty_cell_labels", 
+                     "cell_type"),
+                   ctypes = study_specific_cell_types)
+  
+  shared_genes <- Reduce(intersect, sapply(sces, rownames))
+  cols_to_keep <-  c("cell_type", "study") 
+  for(i in seq_along(sces)) {
+    id <- names(sces)[i]
+    cell_type_col <- study_dat$cols[i]
+    cell_types <- study_dat$ctypes[[i]]
+    sces[[i]]$study <- id
+    sces[[i]]$cell_type <- as.character(sces[[i]][[cell_type_col]])
+    to_keep <- sces[[i]]$cell_type %in% cell_types
+    sces[[i]] <- sces[[i]][shared_genes, to_keep]
+    colData(sces[[i]]) <- colData(sces[[i]])[, cols_to_keep]
+  }
+  
+  outs <- multiBatchNorm(sces)
+  all_dec <- lapply(outs, modelGeneVar)
+  combined.dec <- combineVar(all_dec)
+  chosen.hvgs <- getTopHVGs(combined.dec, n=5000)
+  uc_sce <- do.call(cbind, outs)
+  set.seed(seed_val)
+  uc_sce <- runPCA(uc_sce, subset_row = chosen.hvgs)
+  set.seed(seed_val)
+  uc_sce <- runUMAP(uc_sce, dimred="PCA", n_dimred = 30)
+  metadata(uc_sce)$hvgs <- list(dec = combined.dec,
+                                hvgs = chosen.hvgs)
+  
+  colData(uc_sce) <- cbind(colData(uc_sce), 
+                  perCellQCMetrics(uc_sce, 
+                                   subsets = list(Mito = grepl("^mt-",
+                                                               rownames(uc_sce)))))
+  uc_sce$random_order <- sample(1:ncol(uc_sce),
+                                ncol(uc_sce), 
+                                replace = FALSE)
+  
+  uc_sce$coarse_cell_type <- map_to_coarse[uc_sce$cell_type]
+  
+  saveRDS(uc_sce, sce_fn)
+} else {
+  uc_sce <- readRDS(sce_fn)
+}
+
+ps <- plot_correction_umaps(uc_sce)
+```
+
+### All cells together
+
+```{r, echo = FALSE}
+ps$all
+```
+
+### Split by study
+
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study
+```
+
+
+
+## fastMNN integration 
+
+```{r}
+sce_fn <- file.path(obj_dir, "mnn_sce.rds")
+
+if(!file.exists(sce_fn)){
+  bpp <- BiocParallel::MulticoreParam(6)
+  set.seed(seed_val)
+  study_order <- c( "Kobayashi_et_al_ncb", "Riemondy_et_al_JCI-insight", "Strunz_et_al_nc")
+  uc_sce$study <- factor(uc_sce$study, levels = study_order)
+  quick.corrected <- quickCorrect(uc_sce, 
+                                  batch = uc_sce$study,
+                                  correct.all = TRUE,
+                                  PARAM = FastMnnParam(BPPARAM = bpp, 
+                                                       d = 20,
+                                                       k = 50),
+                                  hvg.args = list(n = 3000))
+  mnn_sce <- quick.corrected$corrected
+  set.seed(seed_val)
+  mnn_sce <- runUMAP(mnn_sce, dimred="corrected", n_dimred = 20)
+  
+  mnn_sce$batch <- factor(mnn_sce$batch)
+  stopifnot( all(colnames(uc_sce) == colnames(mnn_sce)))
+  colData(mnn_sce) <- colData(uc_sce)
+  
+  assay(mnn_sce, "counts") <- assay(uc_sce, "counts")
+  mnn_sce <- multiBatchNorm(mnn_sce, batch = mnn_sce$study, preserve.single = TRUE)
+  
+  snn.gr <- buildSNNGraph(mnn_sce, use.dimred="corrected")
+  mnn_clusters <- igraph::cluster_walktrap(snn.gr)$membership
+  mnn_sce$mnn_clusters <- as.factor(mnn_clusters)
+  
+  mnn_tab <- table(Cluster = mnn_clusters, Batch = mnn_sce$study)
+  
+  saveRDS(mnn_sce, sce_fn)
+} else {
+  mnn_sce <- readRDS(sce_fn)
+}
+
+ps <- plot_correction_umaps(mnn_sce)
+```
+
+### All cells together
+
+```{r, echo = FALSE}
+ps$all
+```
+
+### Split by study
+
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study
+```
+
+
+### Cell type Markers {.tabset}
+
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$genes)){
+  cat('\n#### ', names(ps$genes)[i], '\n')
+  print(ps$genes[i])
+  cat('\n')
+}
+```
+
+### CCA Markers {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$cca_genes)){
+  cat('\n#### ', names(ps$cca_genes)[i], '\n')
+  print(ps$cca_genes[i])
+  cat('\n')
+}
+```
+
+## Harmony integration
+
+```{r}
+sce_fn <- file.path(obj_dir, "hm_sce.rds")
+
+if(!file.exists(sce_fn)){
+
+  library(harmony)
+
+  set.seed(seed_val)
+  
+  chosen.hvgs <- getTopHVGs(metadata(uc_sce)$hvg$dec, n = 5000)
+  hm_sce <- uc_sce
+  hm_sce <- multiBatchNorm(hm_sce, batch = hm_sce$study)
+   set.seed(seed_val)
+  reducedDims(hm_sce)$PCA <- multiBatchPCA(hm_sce, 
+                          batch = hm_sce$study, 
+                          d = 30, 
+                          subset.row = chosen.hvgs,
+                          preserve.single = TRUE)[[1]]
+  
+  set.seed(seed_val)
+  hrm_embed <- HarmonyMatrix(reducedDims(hm_sce)$PCA[, 1:20],
+                             meta_data = hm_sce$study,
+                             theta = 4,
+                             lambda = 2,
+                             do_pca = FALSE)
+  reducedDim(hm_sce, "harmony") <- hrm_embed
+  set.seed(seed_val)
+  hm_sce <- runUMAP(hm_sce, dimred="harmony", n_dimred = 20)
+  
+  snn.gr <- buildSNNGraph(hm_sce, use.dimred="harmony")
+  hm_clusters <- igraph::cluster_walktrap(snn.gr)$membership
+  hm_sce$hm_clusters <- as.factor(hm_clusters)
+  hm_tab <- table(Cluster = hm_clusters, Batch = hm_sce$study)
+
+  saveRDS(hm_sce, sce_fn)
+} else {
+  hm_sce <- readRDS(sce_fn)
+ }
+
+  
+ps <- plot_correction_umaps(hm_sce)
+```
+### All cells together
+
+```{r, echo = FALSE}
+ps$all
+```
+
+### Split by study
+
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study
+```
+
+
+### Cell type Markers {.tabset}
+
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$genes)){
+  cat('\n#### ', names(ps$genes)[i], '\n')
+  print(ps$genes[i])
+  cat('\n')
+}
+```
+
+### CCA Markers {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$cca_genes)){
+  cat('\n#### ', names(ps$cca_genes)[i], '\n')
+  print(ps$cca_genes[i])
+  cat('\n')
+}
+```
+    
+## scVI integration
+
+`scVI` is an unsupervised integration approach. It is also a precursor step to running `scANVI` below. Generally this perform the worse. It was successful in mixing all of the cell types, but lost the most biological signal. 
+
+```{r}
+sce_fn <- file.path(obj_dir, "scvi_sce.rds")
+
+if(!file.exists(sce_fn)){
+ # source("scVI.R")
+  stop("error")
+} else {
+  scvi_sce <- readRDS(sce_fn)
+  if(!"scvi_clusters" %in% colnames(colData(scvi_sce))){
+    snn.gr <- buildSNNGraph(scvi_sce, use.dimred="scvi")
+    scvi_clusters <- igraph::cluster_walktrap(snn.gr)$membership
+    scvi_sce$scvi_clusters <- as.factor(scvi_clusters)
+    scvi_tab <- table(Cluster = scvi_clusters, Batch = scvi_sce$study)
+    saveRDS(scvi_sce, sce_fn)
+  }
+}
+
+
+ps <- plot_correction_umaps(scvi_sce)
+```
+
+### All cells together
+
+```{r, echo = FALSE}
+ps$all
+```
+
+### Split by study
+
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study
+```
+
+
+
+### Cell type Markers {.tabset}
+
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$genes)){
+  cat('\n#### ', names(ps$genes)[i], '\n')
+  print(ps$genes[i])
+  cat('\n')
+}
+```
+
+### CCA Markers {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$cca_genes)){
+  cat('\n#### ', names(ps$cca_genes)[i], '\n')
+  print(ps$cca_genes[i])
+  cat('\n')
+}
+```
+
+
+## scANVI integration 
+
+`scANVI` is a semi-supervised integration and annotation approach. It therefore requires some pre-labeled cell types to perform integration. I've follow the approach used for the HCA Lung Atlas paper which used "coarse cell type labels". Shown below is how I mapped the study specific cell type names to coarse labels, either (AEC1, AEC2, Transitional, or proliferating). 
+
+```{r, rows.print = 100, cols.min.print = 2}
+library(purrr)
+library(stringr)
+data.frame(original_cell_type = paste0(str_split(uc_sce$study, "_") |> map_chr(1), 
+                                       ": ", 
+                                       uc_sce$cell_type), 
+           coarse_cell_type = uc_sce$coarse_cell_type,
+           row.names = NULL) |>
+  unique()
+```
+
+```{r}
+sce_fn <- file.path(obj_dir, "scanvi_sce.rds")
+
+if(!file.exists(sce_fn)){
+ # source("scVI.R")
+  stop("error")
+} else {
+  scanvi_sce <- readRDS(sce_fn)
+  if(!"scanvi_clusters" %in% colnames(colData(scanvi_sce))){
+    snn.gr <- buildSNNGraph(scanvi_sce, use.dimred="scanvi")
+    scanvi_clusters <- igraph::cluster_walktrap(snn.gr)$membership
+    scanvi_sce$scanvi_clusters <- as.factor(scanvi_clusters)
+    scanvi_tab <- table(Cluster = scanvi_clusters, Batch = scanvi_sce$study)
+    saveRDS(scanvi_sce, sce_fn)
+  }
+}
+
+ps <- plot_correction_umaps(scanvi_sce)
+```
+
+### All cells together
+
+```{r, echo = FALSE}
+ps$all
+```
+
+
+### Split by study
+
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study
+```
+
+
+### Cell type Markers {.tabset}
+
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$genes)){
+  cat('\n#### ', names(ps$genes)[i], '\n')
+  print(ps$genes[i])
+  cat('\n')
+}
+```
+
+### CCA Markers {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$cca_genes)){
+  cat('\n#### ', names(ps$cca_genes)[i], '\n')
+  print(ps$cca_genes[i])
+  cat('\n')
+}
+```
+
+
+
+<details><summary>Show session info</summary>
+
+```{r code}
+sessionInfo()
+```
+
+</details>
+
