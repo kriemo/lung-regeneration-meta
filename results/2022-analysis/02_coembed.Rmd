@@ -177,7 +177,7 @@ plot_correction_umaps <- function(sce){
 ## No batch correction
 
 ```{r}
-seed_val <- 20221127
+seed_val <- 20221217
 sce_fn <-  file.path(obj_dir, "uc_sce.rds")
 
 if(!file.exists(sce_fn)){
@@ -262,8 +262,9 @@ if(!file.exists(sce_fn)){
                                   correct.all = TRUE,
                                   PARAM = FastMnnParam(BPPARAM = bpp, 
                                                        d = 20,
-                                                       k = 50),
-                                  hvg.args = list(n = 3000))
+                                                       k = 100,
+                                                       auto.merge = TRUE),
+                                  hvg.args = list(n = 2000))
   mnn_sce <- quick.corrected$corrected
   set.seed(seed_val)
   mnn_sce <- runUMAP(mnn_sce, dimred="corrected", n_dimred = 20)
@@ -273,13 +274,12 @@ if(!file.exists(sce_fn)){
   colData(mnn_sce) <- colData(uc_sce)
   
   assay(mnn_sce, "counts") <- assay(uc_sce, "counts")
-  mnn_sce <- multiBatchNorm(mnn_sce, batch = mnn_sce$study, preserve.single = TRUE)
+  assay(mnn_sce, "logcounts") <- assay(uc_sce, "logcounts")
   
   snn.gr <- buildSNNGraph(mnn_sce, use.dimred="corrected")
-  mnn_clusters <- igraph::cluster_walktrap(snn.gr)$membership
-  mnn_sce$mnn_clusters <- as.factor(mnn_clusters)
-  
-  mnn_tab <- table(Cluster = mnn_clusters, Batch = mnn_sce$study)
+  cl <- igraph::cluster_walktrap(snn.gr)
+  metadata(mnn_sce)$wlktrp <- cl
+  mnn_sce$mnn_clusters <- as.factor(cl$membership)
   
   saveRDS(mnn_sce, sce_fn)
 } else {
@@ -289,38 +289,10 @@ if(!file.exists(sce_fn)){
 ps <- plot_correction_umaps(mnn_sce)
 ```
 
-### All cells together
 
-```{r, echo = FALSE}
-ps$all
-```
-
-### Split by study
-
-```{r, echo = FALSE, fig.width = 9}
-ps$by_study
-```
-
-
-### Cell type Markers {.tabset}
-
-
-```{r, results ='asis', echo = FALSE}
-for(i in seq_along(ps$genes)){
-  cat('\n#### ', names(ps$genes)[i], '\n')
-  print(ps$genes[i])
-  cat('\n')
-}
-```
-
-### CCA Markers {.tabset}
-
-```{r, results ='asis', echo = FALSE}
-for(i in seq_along(ps$cca_genes)){
-  cat('\n#### ', names(ps$cca_genes)[i], '\n')
-  print(ps$cca_genes[i])
-  cat('\n')
-}
+```{r, echo=FALSE, results='asis'}
+res <- knitr::knit_child('integration-plots.Rmd', quiet = TRUE)
+cat(res, sep = '\n')
 ```
 
 ## Harmony integration
@@ -331,9 +303,7 @@ sce_fn <- file.path(obj_dir, "hm_sce.rds")
 if(!file.exists(sce_fn)){
 
   library(harmony)
-
   set.seed(seed_val)
-  
   chosen.hvgs <- getTopHVGs(metadata(uc_sce)$hvg$dec, n = 5000)
   hm_sce <- uc_sce
   hm_sce <- multiBatchNorm(hm_sce, batch = hm_sce$study)
@@ -348,16 +318,16 @@ if(!file.exists(sce_fn)){
   hrm_embed <- HarmonyMatrix(reducedDims(hm_sce)$PCA[, 1:20],
                              meta_data = hm_sce$study,
                              theta = 4,
-                             lambda = 2,
+                             lambda = 0.5,
                              do_pca = FALSE)
   reducedDim(hm_sce, "harmony") <- hrm_embed
   set.seed(seed_val)
   hm_sce <- runUMAP(hm_sce, dimred="harmony", n_dimred = 20)
   
   snn.gr <- buildSNNGraph(hm_sce, use.dimred="harmony")
-  hm_clusters <- igraph::cluster_walktrap(snn.gr)$membership
-  hm_sce$hm_clusters <- as.factor(hm_clusters)
-  hm_tab <- table(Cluster = hm_clusters, Batch = hm_sce$study)
+  cl <- igraph::cluster_walktrap(snn.gr)
+  metadata(hm_sce)$wlktrp <- cl
+  hm_sce$hm_clusters <- as.factor(cl$membership)
 
   saveRDS(hm_sce, sce_fn)
 } else {
@@ -367,38 +337,11 @@ if(!file.exists(sce_fn)){
   
 ps <- plot_correction_umaps(hm_sce)
 ```
-### All cells together
-
-```{r, echo = FALSE}
-ps$all
-```
-
-### Split by study
-
-```{r, echo = FALSE, fig.width = 9}
-ps$by_study
-```
 
 
-### Cell type Markers {.tabset}
-
-
-```{r, results ='asis', echo = FALSE}
-for(i in seq_along(ps$genes)){
-  cat('\n#### ', names(ps$genes)[i], '\n')
-  print(ps$genes[i])
-  cat('\n')
-}
-```
-
-### CCA Markers {.tabset}
-
-```{r, results ='asis', echo = FALSE}
-for(i in seq_along(ps$cca_genes)){
-  cat('\n#### ', names(ps$cca_genes)[i], '\n')
-  print(ps$cca_genes[i])
-  cat('\n')
-}
+```{r, echo=FALSE, results='asis'}
+res <- knitr::knit_child('integration-plots.Rmd', quiet = TRUE)
+cat(res, sep = '\n')
 ```
     
 ## scVI integration
@@ -409,58 +352,36 @@ for(i in seq_along(ps$cca_genes)){
 sce_fn <- file.path(obj_dir, "scvi_sce.rds")
 
 if(!file.exists(sce_fn)){
- # source("scVI.R")
-  stop("error")
+  # generated via google colab to allow use of GPU
+  # scvi/scvi.ipynb
+  scvi_mat <- fread("scvi/scvi.csv.gz", data.table = FALSE) |>
+    as.matrix()
+  colnames(scvi_mat) <- paste0("scvi_", 1:ncol(scvi_mat))
+  scvi_sce <- uc_sce
+  reducedDim(scvi_sce, "scvi") <- scvi_mat
+
+  set.seed(20221220)
+  scvi_sce <- runUMAP(scvi_sce,
+                        dimred = "scvi",
+                        n_dimred = ncol(scvi_mat))
+  
+  snn.gr <- buildSNNGraph(scvi_sce, use.dimred="scvi")
+  cl <- igraph::cluster_walktrap(snn.gr)
+  metadata(scvi_sce)$wlktrp <- cl
+  scvi_sce$scvi_clusters <- as.factor(cl$membership)
+  saveRDS(scvi_sce, sce_fn)
 } else {
   scvi_sce <- readRDS(sce_fn)
-  if(!"scvi_clusters" %in% colnames(colData(scvi_sce))){
-    snn.gr <- buildSNNGraph(scvi_sce, use.dimred="scvi")
-    scvi_clusters <- igraph::cluster_walktrap(snn.gr)$membership
-    scvi_sce$scvi_clusters <- as.factor(scvi_clusters)
-    scvi_tab <- table(Cluster = scvi_clusters, Batch = scvi_sce$study)
-    saveRDS(scvi_sce, sce_fn)
-  }
 }
 
 
 ps <- plot_correction_umaps(scvi_sce)
 ```
 
-### All cells together
-
-```{r, echo = FALSE}
-ps$all
+```{r, echo=FALSE, results='asis'}
+res <- knitr::knit_child('integration-plots.Rmd', quiet = TRUE)
+cat(res, sep = '\n')
 ```
-
-### Split by study
-
-```{r, echo = FALSE, fig.width = 9}
-ps$by_study
-```
-
-
-
-### Cell type Markers {.tabset}
-
-
-```{r, results ='asis', echo = FALSE}
-for(i in seq_along(ps$genes)){
-  cat('\n#### ', names(ps$genes)[i], '\n')
-  print(ps$genes[i])
-  cat('\n')
-}
-```
-
-### CCA Markers {.tabset}
-
-```{r, results ='asis', echo = FALSE}
-for(i in seq_along(ps$cca_genes)){
-  cat('\n#### ', names(ps$cca_genes)[i], '\n')
-  print(ps$cca_genes[i])
-  cat('\n')
-}
-```
-
 
 ## scANVI integration 
 
@@ -481,58 +402,37 @@ data.frame(original_cell_type = paste0(str_split(uc_sce$study, "_") |> map_chr(1
 sce_fn <- file.path(obj_dir, "scanvi_sce.rds")
 
 if(!file.exists(sce_fn)){
- # source("scVI.R")
-  stop("error")
+   # generated via google colab to allow use of GPU
+  # scvi/scvi.ipynb
+  scanvi_mat <- fread("scvi/scanvi.csv.gz", data.table = FALSE) |>
+    as.matrix()
+  colnames(scanvi_mat) <- paste0("scanvi_", 1:ncol(scanvi_mat))
+  scanvi_sce <- uc_sce
+  reducedDim(scanvi_sce, "scanvi") <- scanvi_mat
+
+  set.seed(20221220)
+  scanvi_sce <- runUMAP(scanvi_sce,
+                        dimred = "scanvi",
+                        n_dimred = ncol(scanvi_mat))
+  
+  snn.gr <- buildSNNGraph(scanvi_sce, use.dimred="scanvi")
+  cl <- igraph::cluster_walktrap(snn.gr)
+  metadata(scanvi_sce)$wlktrp <- cl
+  scanvi_sce$scanvi_clusters <- as.factor(cl$membership)
+  saveRDS(scanvi_sce, sce_fn)
 } else {
   scanvi_sce <- readRDS(sce_fn)
-  if(!"scanvi_clusters" %in% colnames(colData(scanvi_sce))){
-    snn.gr <- buildSNNGraph(scanvi_sce, use.dimred="scanvi")
-    scanvi_clusters <- igraph::cluster_walktrap(snn.gr)$membership
-    scanvi_sce$scanvi_clusters <- as.factor(scanvi_clusters)
-    scanvi_tab <- table(Cluster = scanvi_clusters, Batch = scanvi_sce$study)
-    saveRDS(scanvi_sce, sce_fn)
-  }
 }
 
 ps <- plot_correction_umaps(scanvi_sce)
 ```
 
-### All cells together
-
-```{r, echo = FALSE}
-ps$all
+```{r, echo=FALSE, results='asis'}
+res <- knitr::knit_child('integration-plots.Rmd', quiet = TRUE)
+cat(res, sep = '\n')
 ```
 
-
-### Split by study
-
-```{r, echo = FALSE, fig.width = 9}
-ps$by_study
-```
-
-
-### Cell type Markers {.tabset}
-
-
-```{r, results ='asis', echo = FALSE}
-for(i in seq_along(ps$genes)){
-  cat('\n#### ', names(ps$genes)[i], '\n')
-  print(ps$genes[i])
-  cat('\n')
-}
-```
-
-### CCA Markers {.tabset}
-
-```{r, results ='asis', echo = FALSE}
-for(i in seq_along(ps$cca_genes)){
-  cat('\n#### ', names(ps$cca_genes)[i], '\n')
-  print(ps$cca_genes[i])
-  cat('\n')
-}
-```
-
-
+## session info
 
 <details><summary>Show session info</summary>
 

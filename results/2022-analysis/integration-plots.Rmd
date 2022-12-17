@@ -1,0 +1,35 @@
+
+
+### All cells together
+
+```{r, echo = FALSE}
+ps$all
+```
+
+### Split by study
+
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study
+```
+
+
+### Cell type Markers {.tabset}
+
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$genes)){
+  cat('\n#### ', names(ps$genes)[i], '\n')
+  print(ps$genes[i])
+  cat('\n')
+}
+```
+
+### CCA Markers {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$cca_genes)){
+  cat('\n#### ', names(ps$cca_genes)[i], '\n')
+  print(ps$cca_genes[i])
+  cat('\n')
+}
+```
