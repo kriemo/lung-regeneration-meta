@@ -36,9 +36,13 @@ data_dir <- here("data")
 formatted_data_dir <- "processed_data"
 fig_dir <- "figs"
 obj_dir <- "objects"
+mkrs_dir <- "tables"
 ```
 
 ## Reintegrate  mouse data
+
+Here I've tested out a few integration approaches for integrating  3 mouse lung regeneration studies. I've set the number of clusters at 10 to have a consistent way to compare across the integration methods. Once we decide upon an integration method we can start examining other clustering settings. 
+
 
 ```{r}
 studies_to_integrate <- c(
@@ -89,7 +93,7 @@ map_to_coarse <- c(`PATS-2` = "Transitional",
                    `Mki67+ Proliferation` = "proliferating", 
                    `Injured AEC2: Proliferating` = "proliferating")
   
-#old_so <- readRDS(here("results/2021-analysis/objects/harmonized.rds"))
+old_so <- readRDS(here("results/2021-analysis/objects/harmonized.rds"))
 ```
 
 
@@ -227,10 +231,11 @@ if(!file.exists(sce_fn)){
   
   saveRDS(uc_sce, sce_fn)
 } else {
-  uc_sce <- readRDS(sce_fn)
+  sce <- readRDS(sce_fn)
+  metadata(sce)$integration <- "none"
 }
 
-ps <- plot_correction_umaps(uc_sce)
+ps <- plot_correction_umaps(sce)
 ```
 
 ### All cells together
@@ -245,6 +250,27 @@ ps$all
 ps$by_study
 ```
 
+
+### Cell type Markers {.tabset}
+
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$genes)){
+  cat('\n#### ', names(ps$genes)[i], '\n')
+  print(ps$genes[i])
+  cat('\n')
+}
+```
+
+### CCA Markers {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$cca_genes)){
+  cat('\n#### ', names(ps$cca_genes)[i], '\n')
+  print(ps$cca_genes[i])
+  cat('\n')
+}
+```
 
 
 ## fastMNN integration 
@@ -283,10 +309,11 @@ if(!file.exists(sce_fn)){
   
   saveRDS(mnn_sce, sce_fn)
 } else {
-  mnn_sce <- readRDS(sce_fn)
+  sce <- readRDS(sce_fn)
+  metadata(sce)$integration <- "fastMNN"
 }
 
-ps <- plot_correction_umaps(mnn_sce)
+ps <- plot_correction_umaps(sce)
 ```
 
 
@@ -331,11 +358,12 @@ if(!file.exists(sce_fn)){
 
   saveRDS(hm_sce, sce_fn)
 } else {
-  hm_sce <- readRDS(sce_fn)
+  sce <- readRDS(sce_fn)
+  metadata(sce)$integration <- "harmony"
  }
 
   
-ps <- plot_correction_umaps(hm_sce)
+ps <- plot_correction_umaps(sce)
 ```
 
 
@@ -371,11 +399,12 @@ if(!file.exists(sce_fn)){
   scvi_sce$scvi_clusters <- as.factor(cl$membership)
   saveRDS(scvi_sce, sce_fn)
 } else {
-  scvi_sce <- readRDS(sce_fn)
+  sce <- readRDS(sce_fn)
+   metadata(sce)$integration <- "scvi"
 }
 
 
-ps <- plot_correction_umaps(scvi_sce)
+ps <- plot_correction_umaps(sce)
 ```
 
 ```{r, echo=FALSE, results='asis'}
@@ -390,10 +419,10 @@ cat(res, sep = '\n')
 ```{r, rows.print = 100, cols.min.print = 2}
 library(purrr)
 library(stringr)
-data.frame(original_cell_type = paste0(str_split(uc_sce$study, "_") |> map_chr(1), 
+data.frame(original_cell_type = paste0(str_split(sce$study, "_") |> map_chr(1), 
                                        ": ", 
-                                       uc_sce$cell_type), 
-           coarse_cell_type = uc_sce$coarse_cell_type,
+                                       sce$cell_type), 
+           coarse_cell_type = sce$coarse_cell_type,
            row.names = NULL) |>
   unique()
 ```
@@ -421,16 +450,23 @@ if(!file.exists(sce_fn)){
   scanvi_sce$scanvi_clusters <- as.factor(cl$membership)
   saveRDS(scanvi_sce, sce_fn)
 } else {
-  scanvi_sce <- readRDS(sce_fn)
+  sce <- readRDS(sce_fn)
+  metadata(sce)$integration <- "scanvi"
 }
 
-ps <- plot_correction_umaps(scanvi_sce)
+ps <- plot_correction_umaps(sce)
 ```
 
 ```{r, echo=FALSE, results='asis'}
 res <- knitr::knit_child('integration-plots.Rmd', quiet = TRUE)
 cat(res, sep = '\n')
 ```
+
+## Marker tables
+
+For this analysis I've used scoreMarkers from the scran package to rank marker genes. This approach will compute differential expression across all pairwise cluster comparisons, making it more sensitive than Seurat or Presto's approach. It also can handle multiple batches, so that we can ensure that the markers found in each cluster are present in all datasets. 
+
+The output is much more complex than Seurat, so I've written an extended document on the output ("tables/scoreMarkers_information.md"). In the tables directory there are excel spreadsheets for each integration method. The genes are ranked on mean.AUC, requiring a mean.AUC of at least 0.6. An AUC value of 1 means the gene perfectly classifies the cluster, if you built a classified based only on this 1 gene, a value of 0 means that absence of the gene perfectly classifies a cluster (very rare), a value of 0.5 means the gene doesn't provide any classification value. 
 
 ## session info
 

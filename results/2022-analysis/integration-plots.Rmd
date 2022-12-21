@@ -33,3 +33,76 @@ for(i in seq_along(ps$cca_genes)){
   cat('\n')
 }
 ```
+
+
+### clusters
+
+```{r}
+dir.create(mkrs_dir, showWarnings = FALSE)
+library(magrittr)
+library(readr)
+library(dplyr)
+library(purrr)
+library(tidyr)
+n_clusters <- 10
+if(!"coarse_clusters" %in% colnames(colData(sce))){
+  sce$coarse_clusters <- as.character(igraph::cut_at(metadata(sce)$wlktrp,
+                                                     n_clusters))
+}
+plotUMAP(sce, 
+         point_size = 0.5, 
+         colour_by = "coarse_clusters", 
+         other_fields = "study") + 
+     facet_wrap(~study)
+```
+
+
+### cluster markers
+ 
+ 
+```{r}
+bpp <- BiocParallel::MulticoreParam(6)
+if(!"cluster_markers" %in% names(metadata(sce))){
+  id <- metadata(sce)$integration
+  mkrs <- scoreMarkers(sce, 
+                      groups = sce$coarse_clusters,
+                      block = sce$study,
+                      BPPARAM = bpp) %>% 
+    lapply(function(x){
+      as.data.frame(x)  %>%
+      cbind(gene = rownames(.), .) %>%
+          .[.$mean.AUC > 0.6, ] %>% 
+          .[order(-.$mean.AUC, -.$mean.logFC.cohen), ]
+    })
+  metadata(sce)$cluster_markers <- mkrs
+  mkrs %>%
+    bind_rows(.id = "cluster") %>%
+    write_tsv(file.path(mkrs_dir, paste0(id, "_markers.csv")))
+  openxlsx::write.xlsx(mkrs, file.path(mkrs_dir, paste0(id, "_markers.xlsx")),
+                       overwrite = TRUE)
+} else {
+  mkrs <- metadata(sce)$cluster_markers
+}
+topx <- mkrs %>%
+  bind_rows(.id = "group") %>% 
+  mutate(group = factor(group, levels = sort(unique(sce$coarse_clusters)))) %>%
+  group_by(group) %>%
+  arrange(desc(mean.AUC), desc(mean.logFC.cohen), .by_group = TRUE) %>%
+  dplyr::slice(1:10)
+```
+
+
+Shown below are the top 10 markers of each cell population in a table and heatmap.
+
+```{r, rows.print = 15, columns.print = 15}
+topx %>%
+  dplyr::select(gene, group) %>%
+  group_by(group) %>%
+  mutate(id = row_number()) %>%
+  pivot_wider(names_from = "group",
+              values_from = "gene") %>%
+  dplyr::select(-id)
+```
+
+
+
