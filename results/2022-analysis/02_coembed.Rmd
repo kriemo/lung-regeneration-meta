@@ -39,7 +39,7 @@ obj_dir <- "objects"
 mkrs_dir <- "tables"
 ```
 
-## Reintegrate  mouse data
+## Reintegrate mouse data
 
 Here I've tested out a few integration approaches for integrating  3 mouse lung regeneration studies. I've set the number of clusters at 10 to have a consistent way to compare across the integration methods. Once we decide upon an integration method we can start examining other clustering settings. 
 
@@ -93,89 +93,11 @@ map_to_coarse <- c(`PATS-2` = "Transitional",
                    `Mki67+ Proliferation` = "proliferating", 
                    `Injured AEC2: Proliferating` = "proliferating")
   
-old_so <- readRDS(here("results/2021-analysis/objects/harmonized.rds"))
 ```
 
 
 ```{r}
-library(bluster)
-get_correction_statistics <- function(sce,
-                                      clusters,
-                                      batch = "study",
-                                      og_cells = "cell_type"){
-  studies <- unique(sce$study)
-  aris <- vector("list", 3)
-  for(i in seq_along(studies)){
-    s <- as.character(studies[i])
-    aris[[i]] <- pairwiseRand(clusters[sce[[batch]] == s], 
-                             sce[[og_cells]][sce[[batch]] == s],
-                             mode="index")
-    names(aris)[i] <- s
-  }
-  aris
-}
-
-
-plot_correction_umaps <- function(sce){
-  p1 <- plotUMAP(sce, 
-         point_size = 0.5, 
-         colour_by = "cell_type", 
-         other_fields = "study") + 
-     facet_wrap(~study)
-
-  p2 <- plotUMAP(sce,
-         point_size = 0.5, 
-         colour_by = "cell_type",
-         order_by = "random_order")
-  
-  to_plot <- c(
-    "Sftpc",
-    "Pdpn",
-    "Scgb1a1",
-    "Mki67",
-
-    "Cldn4",
-    "Sfn",
-    "Hopx",
-    "Igfbp2",
-    "Krt8"
-  )
-  gplots <- lapply(to_plot, function(x){
-    plotUMAP(sce,
-         point_size = 0.5, 
-         colour_by = x,
-         order_by = x)
-  })
-  names(gplots) <- to_plot
-  
-  cca_to_plot <- c(
-    "Cdkn1a",
-    "Cdkn2a",
-    "Cdkn2b",
-    "Trp53",
-
-    "Pdlim7",
-    "Mcam",
-    "Krt17",
-    "Sox4",
-    "Itga2",
-    "Palld"
-  )
-  
-    ccaplots <- lapply(cca_to_plot, function(x){
-    plotUMAP(sce,
-         point_size = 0.5, 
-         colour_by = x,
-         order_by = x)
-  })
-  names(ccaplots) <- cca_to_plot
-
- list(by_study = p1, 
-       all = p2,
-      genes = gplots,
-      cca_genes = ccaplots)
-}
-  
+source("funs.R")
 ```
 
 ## No batch correction
@@ -213,9 +135,13 @@ if(!file.exists(sce_fn)){
   chosen.hvgs <- getTopHVGs(combined.dec, n=5000)
   uc_sce <- do.call(cbind, outs)
   set.seed(seed_val)
-  uc_sce <- runPCA(uc_sce, subset_row = chosen.hvgs)
+  mbpca <- multiBatchPCA(uc_sce,
+                          batch = uc_sce$study,
+                          subset.row = chosen.hvgs, 
+                          preserve.single = TRUE)
+  reducedDim(uc_sce, "PCA") <- mbpca[[1]]
   set.seed(seed_val)
-  uc_sce <- runUMAP(uc_sce, dimred="PCA", n_dimred = 30)
+  uc_sce <- runUMAP(uc_sce, dimred = "PCA", n_dimred = 30)
   metadata(uc_sce)$hvgs <- list(dec = combined.dec,
                                 hvgs = chosen.hvgs)
   
@@ -229,10 +155,40 @@ if(!file.exists(sce_fn)){
   
   uc_sce$coarse_cell_type <- map_to_coarse[uc_sce$cell_type]
   
+  old_mdata <- fread(here("docs/3.19.2021 Bioinformatics Analysis/cell-metadata.csv"),data.table = FALSE)
+  
+  reid <- c("Kobayashi_et_al_ncb" = 1,
+            "Riemondy_et_al_JCI-insight" = 3,
+            "Strunz_et_al_nc" = 4)
+
+  # add _[0-9]$ to cell ids to match seurat naming
+  uc_sce$old_id  <- paste0(colnames(uc_sce), 
+                           "_",
+                           reid[uc_sce$study])
+  uc_sce$old_clusters <- old_mdata$seurat_clusters[match(uc_sce$old_id, 
+                                                         old_mdata$cell)]
+  
+  # add old UMAP
+  um <- old_mdata[c("harmony_umap_1", "harmony_umap_2")]
+  reducedDim(uc_sce, "old_harmony_umap") <- um[match(uc_sce$old_id, 
+                                                     old_mdata$cell), ]
+  
+  oc <- uc_sce$old_clusters
+  # add label for coarse cell types from previous analysis
+  uc_sce$old_coarse_cell_types <- dplyr::case_when(
+    oc %in% as.character(0:4) ~ "AEC2",
+    stringr::str_detect(oc, "^5_") ~ "Transitional",
+    oc == "6" ~ "Proliferation",
+    oc == "7" ~ "Differentiation",
+    oc == "8" ~ "BASC",
+    TRUE ~ NA_character_)
+  igfbp2_pos <- which(logcounts(uc_sce)["Igfbp2", ] > 0)
+  uc_sce$old_coarse_cell_types[igfbp2_pos] <- "AEC1"
+  
+  metadata(uc_sce)$integration <- "none"
   saveRDS(uc_sce, sce_fn)
 } else {
   sce <- readRDS(sce_fn)
-  metadata(sce)$integration <- "none"
 }
 
 ps <- plot_correction_umaps(sce)
@@ -250,6 +206,11 @@ ps$all
 ps$by_study
 ```
 
+### Old general cell types
+
+```{r, echo = FALSE, fig.width = 9}
+ps$all_old
+```
 
 ### Cell type Markers {.tabset}
 
@@ -306,11 +267,10 @@ if(!file.exists(sce_fn)){
   cl <- igraph::cluster_walktrap(snn.gr)
   metadata(mnn_sce)$wlktrp <- cl
   mnn_sce$mnn_clusters <- as.factor(cl$membership)
-  
+  metadata(mnn_sce)$integration <- "fastMNN"
   saveRDS(mnn_sce, sce_fn)
 } else {
   sce <- readRDS(sce_fn)
-  metadata(sce)$integration <- "fastMNN"
 }
 
 ps <- plot_correction_umaps(sce)
@@ -334,12 +294,12 @@ if(!file.exists(sce_fn)){
   chosen.hvgs <- getTopHVGs(metadata(uc_sce)$hvg$dec, n = 5000)
   hm_sce <- uc_sce
   hm_sce <- multiBatchNorm(hm_sce, batch = hm_sce$study)
-   set.seed(seed_val)
+  set.seed(seed_val)
   reducedDims(hm_sce)$PCA <- multiBatchPCA(hm_sce, 
-                          batch = hm_sce$study, 
-                          d = 30, 
-                          subset.row = chosen.hvgs,
-                          preserve.single = TRUE)[[1]]
+                                            batch = hm_sce$study, 
+                                            d = 30, 
+                                            subset.row = chosen.hvgs,
+                                            preserve.single = TRUE)[[1]]
   
   set.seed(seed_val)
   hrm_embed <- HarmonyMatrix(reducedDims(hm_sce)$PCA[, 1:20],
@@ -355,12 +315,12 @@ if(!file.exists(sce_fn)){
   cl <- igraph::cluster_walktrap(snn.gr)
   metadata(hm_sce)$wlktrp <- cl
   hm_sce$hm_clusters <- as.factor(cl$membership)
-
+  metadata(hm_sce)$integration <- "harmony"
+  
   saveRDS(hm_sce, sce_fn)
 } else {
   sce <- readRDS(sce_fn)
-  metadata(sce)$integration <- "harmony"
- }
+}
 
   
 ps <- plot_correction_umaps(sce)
@@ -390,19 +350,18 @@ if(!file.exists(sce_fn)){
 
   set.seed(20221220)
   scvi_sce <- runUMAP(scvi_sce,
-                        dimred = "scvi",
-                        n_dimred = ncol(scvi_mat))
+                      dimred = "scvi",
+                      n_dimred = ncol(scvi_mat))
   
   snn.gr <- buildSNNGraph(scvi_sce, use.dimred="scvi")
   cl <- igraph::cluster_walktrap(snn.gr)
   metadata(scvi_sce)$wlktrp <- cl
   scvi_sce$scvi_clusters <- as.factor(cl$membership)
+  metadata(scvi_sce)$integration <- "scvi"
   saveRDS(scvi_sce, sce_fn)
 } else {
   sce <- readRDS(sce_fn)
-   metadata(sce)$integration <- "scvi"
 }
-
 
 ps <- plot_correction_umaps(sce)
 ```
@@ -412,14 +371,14 @@ res <- knitr::knit_child('integration-plots.Rmd', quiet = TRUE)
 cat(res, sep = '\n')
 ```
 
+
 ## scANVI integration 
 
 `scANVI` is a semi-supervised integration and annotation approach. It therefore requires some pre-labeled cell types to perform integration. I've follow the approach used for the HCA Lung Atlas paper which used "coarse cell type labels". Shown below is how I mapped the study specific cell type names to coarse labels, either (AEC1, AEC2, Transitional, or proliferating). 
 
 ```{r, rows.print = 100, cols.min.print = 2}
-library(purrr)
 library(stringr)
-data.frame(original_cell_type = paste0(str_split(sce$study, "_") |> map_chr(1), 
+data.frame(original_cell_type = paste0(str_split(sce$study, "_") |> purrr::map_chr(1), 
                                        ": ", 
                                        sce$cell_type), 
            coarse_cell_type = sce$coarse_cell_type,
@@ -448,10 +407,10 @@ if(!file.exists(sce_fn)){
   cl <- igraph::cluster_walktrap(snn.gr)
   metadata(scanvi_sce)$wlktrp <- cl
   scanvi_sce$scanvi_clusters <- as.factor(cl$membership)
+  metadata(scanvi_sce)$integration <- "scanvi"
   saveRDS(scanvi_sce, sce_fn)
 } else {
   sce <- readRDS(sce_fn)
-  metadata(sce)$integration <- "scanvi"
 }
 
 ps <- plot_correction_umaps(sce)

@@ -1,0 +1,210 @@
+---
+title: "Exploring scanVI integration"
+author: "Kent Riemondy"
+date: "`r Sys.Date()`"
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "html") })
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: cosmo
+    highlight: kate
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(cache = FALSE)
+```
+
+```{r}
+library(ComplexHeatmap)
+library(SingleCellExperiment)
+library(scran)
+library(scuttle)
+library(scater)
+library(batchelor)
+library(data.table)
+library(here)
+library(openxlsx)
+library(cowplot)
+data_dir <- here("data")
+formatted_data_dir <- "processed_data"
+fig_dir <- "figs"
+obj_dir <- "objects"
+mkrs_dir <- "tables"
+```
+
+
+# scANVI integration 
+
+Next i'll perform additional exploratory analysis of the scANVI integration. 
+
+
+```{r}
+sce_fn <- file.path("objects", "scanvi_sce.rds")
+sce <- readRDS(sce_fn)
+metadata(sce)$integration <- "scanvi"
+```
+
+```{r}
+plot_correction_umaps <- function(sce){
+  p1 <- plotUMAP(sce, 
+         point_size = 0.5, 
+         colour_by = "cell_type", 
+         other_fields = "study") + 
+     facet_wrap(~study)
+
+  p2 <- plotUMAP(sce,
+         point_size = 0.5, 
+         colour_by = "cell_type",
+         other_fields = "study") + 
+     facet_wrap(~study)
+
+  to_plot <- c(
+    "Sftpc",
+    "Pdpn",
+    "Scgb1a1",
+    "Mki67",
+
+    "Cldn4",
+    "Sfn",
+    "Hopx",
+    "Igfbp2",
+    "Krt8"
+  )
+  gplots <- lapply(to_plot, function(x){
+    plotUMAP(sce[, sce$random_order],
+         point_size = 0.5, 
+         colour_by = x,
+         other_fields = "study") + 
+     facet_wrap(~study)
+
+  })
+  names(gplots) <- to_plot
+  
+  cca_to_plot <- c(
+    "Cdkn1a",
+    "Cdkn2a",
+    "Cdkn2b",
+    "Trp53",
+
+    "Pdlim7",
+    "Mcam",
+    "Krt17",
+    "Sox4",
+    "Itga2",
+    "Palld"
+  )
+  
+  ccaplots <- lapply(cca_to_plot, function(x){
+    plotUMAP(sce[, sce$random_order],
+         point_size = 0.5, 
+         colour_by = x,
+         other_fields = "study") + 
+     facet_wrap(~study)
+
+  })
+  names(ccaplots) <- cca_to_plot
+
+ act_to_plot <- c("Lcn2", "Ly6i", "Il33")
+ actplots <- lapply(act_to_plot, function(x){
+    plotUMAP(sce[, sce$random_order],
+         point_size = 0.5, 
+         colour_by = x,
+         other_fields = "study") + 
+     facet_wrap(~study)
+  })
+  names(actplots) <- act_to_plot
+ 
+ list(by_study = p1, 
+      all = p2,
+      genes = gplots,
+      cca_genes = ccaplots)
+}
+ps <- plot_correction_umaps(sce)
+```
+
+### All cells together
+
+```{r, echo = FALSE}
+ps$all
+```
+
+### Split by study
+
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study
+```
+
+
+### Cell type Markers {.tabset}
+
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$genes)){
+  cat('\n#### ', names(ps$genes)[i], '\n')
+  print(ps$genes[i])
+  cat('\n')
+}
+```
+
+### CCA Markers {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$cca_genes)){
+  cat('\n#### ', names(ps$cca_genes)[i], '\n')
+  print(ps$cca_genes[i])
+  cat('\n')
+}
+```
+
+### clusters
+
+```{r}
+cuts <- seq(4, 12)
+ids <- paste0("clusters_", cuts)
+if(!all(cuts %in% colnames(colData(sce)))){
+  for(i in seq_along(cuts)){
+    id <- ids[i]
+    sce[[id]] <- as.character(igraph::cut_at(metadata(sce)$wlktrp, cuts[i]))
+  }
+}
+```
+
+```{r, fig.height=9, fig.width=9}
+library(clustree)
+clustree(sce, prefix = "clusters_") +  scale_color_brewer(palette = "Set1")
+```
+
+
+### cluster UMAPs {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ids)){
+  cat('\n#### ', ids[i], '\n')
+  p <- plotUMAP(sce, 
+         point_size = 0.5, 
+         colour_by = ids[i], 
+         other_fields = "study") + 
+     facet_wrap(~study)
+  cat('\n')
+}
+```
+
+
+## session info
+
+
+<details><summary>Show session info</summary>
+
+```{r code}
+sessionInfo()
+```
+
+</details>
+

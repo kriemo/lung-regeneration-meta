@@ -12,6 +12,11 @@ ps$all
 ps$by_study
 ```
 
+### Old general cell types
+
+```{r, echo = FALSE, fig.width = 9}
+ps$all_old
+```
 
 ### Cell type Markers {.tabset}
 
@@ -34,75 +39,127 @@ for(i in seq_along(ps$cca_genes)){
 }
 ```
 
+### Activated Markers {.tabset}
 
-### clusters
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$act_genes)){
+  cat('\n#### ', names(ps$act_genes)[i], '\n')
+  print(ps$act_genes[i])
+  cat('\n')
+}
+```
+
+### Clusters 
 
 ```{r}
-dir.create(mkrs_dir, showWarnings = FALSE)
-library(magrittr)
-library(readr)
-library(dplyr)
-library(purrr)
-library(tidyr)
-n_clusters <- 10
-if(!"coarse_clusters" %in% colnames(colData(sce))){
-  sce$coarse_clusters <- as.character(igraph::cut_at(metadata(sce)$wlktrp,
-                                                     n_clusters))
+cuts <- seq(4, 12)
+ids <- paste0("clusters_", cuts)
+if(!all(cuts %in% colnames(colData(sce)))){
+  for(i in seq_along(cuts)){
+    id <- ids[i]
+    sce[[id]] <- as.character(igraph::cut_at(metadata(sce)$wlktrp, cuts[i]))
+  }
 }
-plotUMAP(sce, 
+```
+
+Shown below is a "clustree". This is a diagram that shows how cells are related to 
+each other at different clustering settings. Here I'm showing how the clustering changes
+with increasing number of clusters (4-12). 
+
+```{r, fig.height=9, fig.width=9}
+library(clustree)
+clustree(sce, prefix = "clusters_") +  scale_color_brewer(palette = "Set1")
+```
+
+### cluster comparisions to old integration {.tabset}
+
+Showm below is the clustering results at different number of clusters. 
+
+The UMAP shows the clusters, then there are 2 heatmaps which show the similarity 
+bettwen old cell types or clusters and the new clustering. A jaccard index value of 1
+means that the cells are identical between a pair of clusters, a value of 0 means no cells are shared.
+
+
+```{r, results ='asis', echo = FALSE}
+library(magrittr)
+bpp <- BiocParallel::MulticoreParam(6)
+dir.create(mkrs_dir, showWarnings = FALSE)
+
+for(i in seq_along(ids)){
+  cat('\n#### ', ids[i], '  \n')
+  id <- ids[i]
+  p <- plotUMAP(sce, 
          point_size = 0.5, 
-         colour_by = "coarse_clusters", 
+         colour_by = id, 
          other_fields = "study") + 
      facet_wrap(~study)
-```
+  print(p)
+  cat('  \n')
+  
+  cat("<br>\n\n<br>Relationship between old coarse cell types and new clustering.  \n")
+  jacc.mat <- linkClustersMatrix(sce[[id]], sce$old_coarse_cell_types)
+  rownames(jacc.mat) <- paste("New :", rownames(jacc.mat))
+  colnames(jacc.mat) <- paste("Old :", colnames(jacc.mat))
+  hm <- Heatmap(jacc.mat,
+                name = "jaccard",
+                col = viridis::viridis(100), 
+                cluster_columns = FALSE,
+                cluster_rows = FALSE)
+  draw(hm)
+  
+  cat("<br>\n\n<br>Relationship between old clustering and new clustering  \n")
+  
+  jacc.mat <- linkClustersMatrix(sce[[id]], sce$old_clusters)
+  rownames(jacc.mat) <- paste("New cluster:", rownames(jacc.mat))
+  colnames(jacc.mat) <- paste("Old cluster:", colnames(jacc.mat))
+  hm  <- Heatmap(jacc.mat,
+        name = "jaccard",
+        col = viridis::viridis(100), 
+        cluster_columns = FALSE,
+        cluster_rows = FALSE)
+  draw(hm)
+  
+  cat("<br>\n\n<br>Shown below are the top 10 markers of each cell population in a table and heatmap.  \n")
 
-
-### cluster markers
- 
- 
-```{r}
-bpp <- BiocParallel::MulticoreParam(6)
-if(!"cluster_markers" %in% names(metadata(sce))){
-  id <- metadata(sce)$integration
-  mkrs <- scoreMarkers(sce, 
-                      groups = sce$coarse_clusters,
-                      block = sce$study,
-                      BPPARAM = bpp) %>% 
-    lapply(function(x){
-      as.data.frame(x)  %>%
-      cbind(gene = rownames(.), .) %>%
-          .[.$mean.AUC > 0.6, ] %>% 
-          .[order(-.$mean.AUC, -.$mean.logFC.cohen), ]
-    })
-  metadata(sce)$cluster_markers <- mkrs
-  mkrs %>%
-    bind_rows(.id = "cluster") %>%
-    write_tsv(file.path(mkrs_dir, paste0(id, "_markers.csv")))
-  openxlsx::write.xlsx(mkrs, file.path(mkrs_dir, paste0(id, "_markers.xlsx")),
-                       overwrite = TRUE)
-} else {
-  mkrs <- metadata(sce)$cluster_markers
+  if(!"cluster_markers" %in% names(metadata(sce))){
+    int_method <- metadata(sce)$integration
+    mkrs <- scoreMarkers(sce, 
+                        groups = sce[[id]],
+                        block = sce$study,
+                        BPPARAM = bpp) 
+    mkrs <- lapply(mkrs ,function(x){
+        x <- as.data.frame(x)  
+        x <- cbind(gene = rownames(x), x)
+        x <-  x[x$mean.AUC > 0.6, ]
+        x[order(-x$mean.AUC, -x$mean.logFC.cohen), ]
+      })
+    
+    metadata(sce)$cluster_markers <- mkrs
+    mkrs %>%
+      rbindlist(use.names = TRUE, idcol = "cluster") %>% 
+      fwrite(file.path(mkrs_dir, paste0(id, "_markers.csv")), sep = ",")
+    openxlsx::write.xlsx(mkrs, file.path(mkrs_dir, paste0(int_method, "_markers.xlsx")),
+                         overwrite = TRUE)
+  } else {
+    mkrs <- metadata(sce)$cluster_markers
+  }
+  
+  topx <- rbindlist(mkrs, use.names = TRUE, idcol = "group") %>% 
+    .[, group := factor(group, levels = sort(unique(sce[[id]])))] %>% 
+    .[, .SD[1:10], by = group] 
+  
+  res <- topx %>%
+    .[, .(gene, group)] %>% 
+    .[, id := 1:.N, by = group] %>% 
+    dcast(id  ~ group, value.var = "gene") %>% 
+    .[, !c("id")]
+  knitr::kable(res)
+  cat("<br>\n\n<br>")
 }
-topx <- mkrs %>%
-  bind_rows(.id = "group") %>% 
-  mutate(group = factor(group, levels = sort(unique(sce$coarse_clusters)))) %>%
-  group_by(group) %>%
-  arrange(desc(mean.AUC), desc(mean.logFC.cohen), .by_group = TRUE) %>%
-  dplyr::slice(1:10)
 ```
 
-
-Shown below are the top 10 markers of each cell population in a table and heatmap.
-
-```{r, rows.print = 15, columns.print = 15}
-topx %>%
-  dplyr::select(gene, group) %>%
-  group_by(group) %>%
-  mutate(id = row_number()) %>%
-  pivot_wider(names_from = "group",
-              values_from = "gene") %>%
-  dplyr::select(-id)
+```{r}
+saveRDS(sce, sce_fn)
 ```
-
 
 
