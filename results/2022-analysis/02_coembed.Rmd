@@ -41,7 +41,7 @@ mkrs_dir <- "tables"
 
 ## Reintegrate mouse data
 
-Here I've tested out a few integration approaches for integrating  3 mouse lung regeneration studies. I've set the number of clusters at 10 to have a consistent way to compare across the integration methods. Once we decide upon an integration method we can start examining other clustering settings. 
+Here I've tested out a few integration approaches for integrating the 3 mouse lung regeneration studies. 
 
 
 ```{r}
@@ -77,21 +77,21 @@ study_specific_cell_types <- list(
 
 # cell type mapping used for scANVI
 
-map_to_coarse <- c(`PATS-2` = "Transitional",
+map_to_coarse <- c(`PATS-2` = "Differentiating",
                    `PATS-1` = "Transitional",
                    `Injured AEC2: Early Transdifferentiating` = "Transitional", 
-                   `Injured AEC2: Late Transdifferentiating` = "Transitional",
+                   `Injured AEC2: Late Transdifferentiating` = "Differentiating",
                    `Krt8+ ADI` = "Transitional", 
                    `Naive AEC1` = "AEC1",
-                   AEC1 = "AEC1", 
-                   AT1 = "AEC1", 
+                   AEC1 = "Unknown", 
+                   AT1 = "Unknown", 
                    AT2 = "AEC2", 
                    AEC2 = "AEC2", 
                    `Naive AEC2` = "AEC2",
                    `Other Injured AEC2` = "AEC2", 
-                   `AEC2-proliferating` = "proliferating", 
-                   `Mki67+ Proliferation` = "proliferating", 
-                   `Injured AEC2: Proliferating` = "proliferating")
+                   `AEC2-proliferating` = "Proliferating", 
+                   `Mki67+ Proliferation` = "Proliferating", 
+                   `Injured AEC2: Proliferating` = "Proliferating")
   
 ```
 
@@ -101,6 +101,8 @@ source("funs.R")
 ```
 
 ## No batch correction
+
+There are strong batch effects, with no overlap between studies based on UMAP. 
 
 ```{r}
 seed_val <- 20221217
@@ -206,6 +208,10 @@ ps$all
 ps$by_study
 ```
 
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study_split
+```
+
 ### Old general cell types
 
 ```{r, echo = FALSE, fig.width = 9}
@@ -233,8 +239,19 @@ for(i in seq_along(ps$cca_genes)){
 }
 ```
 
+### Activation Markers {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$act_genes)){
+  cat('\n#### ', names(ps$act_genes)[i], '\n')
+  print(ps$act_genes[i])
+  cat('\n')
+}
+```
 
 ## fastMNN integration 
+
+fastMNN does a good job integrating the most interesting populations, e.g. transitional, differentiating, proliferating, and BASC, however the AEC2 cells don't integrate very well, even with aggressive integration settings (k = 100).
 
 ```{r}
 sce_fn <- file.path(obj_dir, "mnn_sce.rds")
@@ -242,6 +259,7 @@ sce_fn <- file.path(obj_dir, "mnn_sce.rds")
 if(!file.exists(sce_fn)){
   bpp <- BiocParallel::MulticoreParam(6)
   set.seed(seed_val)
+  uc_sce <- readRDS(file.path(obj_dir, "uc_sce.rds"))
   study_order <- c( "Kobayashi_et_al_ncb", "Riemondy_et_al_JCI-insight", "Strunz_et_al_nc")
   uc_sce$study <- factor(uc_sce$study, levels = study_order)
   quick.corrected <- quickCorrect(uc_sce, 
@@ -250,8 +268,8 @@ if(!file.exists(sce_fn)){
                                   PARAM = FastMnnParam(BPPARAM = bpp, 
                                                        d = 20,
                                                        k = 100,
-                                                       auto.merge = TRUE),
-                                  hvg.args = list(n = 2000))
+                                                       auto.merge = FALSE),
+                                  hvg.args = list(n = 3000))
   mnn_sce <- quick.corrected$corrected
   set.seed(seed_val)
   mnn_sce <- runUMAP(mnn_sce, dimred="corrected", n_dimred = 20)
@@ -284,6 +302,8 @@ cat(res, sep = '\n')
 
 ## Harmony integration
 
+Harmony also does a good job integrating most of the populations and pulls out the most mature AEC1 population into a well separated cluster. 
+
 ```{r}
 sce_fn <- file.path(obj_dir, "hm_sce.rds")
 
@@ -291,7 +311,8 @@ if(!file.exists(sce_fn)){
 
   library(harmony)
   set.seed(seed_val)
-  chosen.hvgs <- getTopHVGs(metadata(uc_sce)$hvg$dec, n = 5000)
+  uc_sce <- readRDS(file.path(obj_dir, "uc_sce.rds"))
+  chosen.hvgs <- getTopHVGs(metadata(uc_sce)$hvg$dec, n = 3000)
   hm_sce <- uc_sce
   hm_sce <- multiBatchNorm(hm_sce, batch = hm_sce$study)
   set.seed(seed_val)
@@ -321,7 +342,6 @@ if(!file.exists(sce_fn)){
 } else {
   sce <- readRDS(sce_fn)
 }
-
   
 ps <- plot_correction_umaps(sce)
 ```
@@ -334,21 +354,22 @@ cat(res, sep = '\n')
     
 ## scVI integration
 
-`scVI` is an unsupervised integration approach. It is also a precursor step to running `scANVI` below. Generally this perform the worse. It was successful in mixing all of the cell types, but lost the most biological signal. 
+`scVI` is an unsupervised integration approach. It is also a precursor step to running `scANVI` below. It was successful in mixing all of the cell types, but appears to overmerge the cells. 
 
 ```{r}
-sce_fn <- file.path(obj_dir, "scvi_sce.rds")
+sce_fn <- file.path(obj_dir, "20221230_scvi_sce.rds")
 
 if(!file.exists(sce_fn)){
   # generated via google colab to allow use of GPU
   # scvi/scvi.ipynb
-  scvi_mat <- fread("scvi/scvi.csv.gz", data.table = FALSE) |>
+  scvi_mat <- fread("scvi/20221230_scvi.csv.gz", data.table = FALSE) |>
     as.matrix()
   colnames(scvi_mat) <- paste0("scvi_", 1:ncol(scvi_mat))
+  uc_sce <- readRDS(file.path(obj_dir, "uc_sce.rds"))
   scvi_sce <- uc_sce
   reducedDim(scvi_sce, "scvi") <- scvi_mat
 
-  set.seed(20221220)
+  set.seed(seed_val)
   scvi_sce <- runUMAP(scvi_sce,
                       dimred = "scvi",
                       n_dimred = ncol(scvi_mat))
@@ -374,7 +395,7 @@ cat(res, sep = '\n')
 
 ## scANVI integration 
 
-`scANVI` is a semi-supervised integration and annotation approach. It therefore requires some pre-labeled cell types to perform integration. I've follow the approach used for the HCA Lung Atlas paper which used "coarse cell type labels". Shown below is how I mapped the study specific cell type names to coarse labels, either (AEC1, AEC2, Transitional, or proliferating). 
+`scANVI` is a semi-supervised integration and annotation approach. It therefore requires some pre-labeled cell types to perform integration. I've follow the approach used for the HCA Lung Atlas paper which used "coarse cell type labels". Shown below is how I mapped the study specific cell type names to coarse labels, either (AEC1, AEC2, Transitional, differentiating, or proliferating). The AEC1 cells from Kobayashi and Strunz were left as "Unknown" as it's not clear if these are mature or differentiating AEC1 cells. In contrast, in the JCI insight study, AEC1 cells were flow sorted, which likely preserved these fragile cells in the dataset.
 
 ```{r, rows.print = 100, cols.min.print = 2}
 library(stringr)
@@ -387,14 +408,15 @@ data.frame(original_cell_type = paste0(str_split(sce$study, "_") |> purrr::map_c
 ```
 
 ```{r}
-sce_fn <- file.path(obj_dir, "scanvi_sce.rds")
+sce_fn <- file.path(obj_dir, "20221230_scanvi_sce.rds")
 
 if(!file.exists(sce_fn)){
    # generated via google colab to allow use of GPU
   # scvi/scvi.ipynb
-  scanvi_mat <- fread("scvi/scanvi.csv.gz", data.table = FALSE) |>
+  scanvi_mat <- fread("scvi/20221230_scanvi.csv.gz", data.table = FALSE) |>
     as.matrix()
   colnames(scanvi_mat) <- paste0("scanvi_", 1:ncol(scanvi_mat))
+  uc_sce <- readRDS(file.path(obj_dir, "uc_sce.rds"))
   scanvi_sce <- uc_sce
   reducedDim(scanvi_sce, "scanvi") <- scanvi_mat
 
@@ -426,6 +448,25 @@ cat(res, sep = '\n')
 For this analysis I've used scoreMarkers from the scran package to rank marker genes. This approach will compute differential expression across all pairwise cluster comparisons, making it more sensitive than Seurat or Presto's approach. It also can handle multiple batches, so that we can ensure that the markers found in each cluster are present in all datasets. 
 
 The output is much more complex than Seurat, so I've written an extended document on the output ("tables/scoreMarkers_information.md"). In the tables directory there are excel spreadsheets for each integration method. The genes are ranked on mean.AUC, requiring a mean.AUC of at least 0.6. An AUC value of 1 means the gene perfectly classifies the cluster, if you built a classified based only on this 1 gene, a value of 0 means that absence of the gene perfectly classifies a cluster (very rare), a value of 0.5 means the gene doesn't provide any classification value. 
+
+
+## Summary
+
+scanVI looks the best, although in general all of the integrations seemed to generally work.
+
+At a clustering setting that produces 7 clusters, these can be labeled as:  
+
+1: Proliferating. 
+2: Transitional.  
+3: BASC. 
+4: AEC2. 
+5: Differentiating. 
+6: AEC1. (only in riemondy and strunz et al). 
+7: Club (Foxj1+, only in strunz et al). 
+
+At higher clustering (e.g. 9 clusters) a subpopulation appears 
+that matches the abberent baseloid population (cluster 7 ) and is found in all 
+studies.  
 
 ## session info
 

@@ -7,9 +7,12 @@
 *_files
 *.html
 *.pdf
+*.gz
 docs
 data
 cellbrowser
 figs
 processed_data
 .DS_Store
+tables
+objects

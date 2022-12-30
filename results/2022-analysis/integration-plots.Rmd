@@ -8,8 +8,12 @@ ps$all
 
 ### Split by study
 
-```{r, echo = FALSE, fig.width = 9}
+```{r}
 ps$by_study
+```
+
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study_split
 ```
 
 ### Old general cell types
@@ -123,10 +127,11 @@ for(i in seq_along(ids)){
 
   if(!id %in% names(metadata(sce))){
     int_method <- metadata(sce)$integration
+    dir.create(file.path(mkrs_dir, int_method), showWarnings = FALSE)
     mkrs <- scoreMarkers(sce, 
-                        groups = sce[[id]],
-                        block = sce$study,
-                        BPPARAM = bpp) 
+                         groups = sce[[id]],
+                         block = sce$study,
+                         BPPARAM = bpp) 
     mkrs <- lapply(mkrs ,function(x){
         x <- as.data.frame(x)  
         x <- cbind(gene = rownames(x), x)
@@ -137,8 +142,9 @@ for(i in seq_along(ids)){
     metadata(sce)[[id]] <- mkrs
     mkrs %>%
       rbindlist(use.names = TRUE, idcol = "cluster") %>% 
-      fwrite(file.path(mkrs_dir, paste0(id, "_markers.csv")), sep = ",")
-    openxlsx::write.xlsx(mkrs, file.path(mkrs_dir, paste0(int_method, "_markers.xlsx")),
+      fwrite(file.path(mkrs_dir, int_method, paste0(id, "_markers.csv")), sep = ",")
+    
+    openxlsx::write.xlsx(mkrs, file.path(mkrs_dir, int_method, paste0(id, "_markers.xlsx")),
                          overwrite = TRUE)
   } else {
     mkrs <- metadata(sce)[[id]]

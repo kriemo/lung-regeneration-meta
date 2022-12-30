@@ -17,11 +17,16 @@ get_correction_statistics <- function(sce,
 
 
 plot_correction_umaps <- function(sce){
-  p1 <- plotUMAP(sce,
+  pstudy_split <- plotUMAP(sce,
                  point_size = 0.5,
                  colour_by = "cell_type",
                  other_fields = "study") +
     facet_wrap(~study)
+
+  pstudy <- plotUMAP(sce,
+                 point_size = 0.5,
+                 colour_by = "study",
+                 order_by = "random_order")
 
   p2 <- plotUMAP(sce,
                  point_size = 0.5,
@@ -44,13 +49,16 @@ plot_correction_umaps <- function(sce){
     "Sfn",
     "Hopx",
     "Igfbp2",
-    "Krt8"
+    "Krt8",
+
+    "Foxj1"
   )
   gplots <- lapply(to_plot, function(x){
-    plotUMAP(sce,
+    plotUMAP(sce[, sce$random_order],
              point_size = 0.5,
              colour_by = x,
-             order_by = x)
+             other_fields = "study") +
+      facet_wrap(~study)
   })
   names(gplots) <- to_plot
 
@@ -69,10 +77,11 @@ plot_correction_umaps <- function(sce){
   )
 
   ccaplots <- lapply(cca_to_plot, function(x){
-    plotUMAP(sce,
+    plotUMAP(sce[, sce$random_order],
              point_size = 0.5,
              colour_by = x,
-             order_by = x)
+             other_fields = "study") +
+      facet_wrap(~study)
   })
   names(ccaplots) <- cca_to_plot
 
@@ -86,7 +95,8 @@ plot_correction_umaps <- function(sce){
   })
   names(actplots) <- act_to_plot
 
-  list(by_study = p1,
+  list(by_study = pstudy,
+       by_study_split = pstudy_split,
        all = p2,
        all_old = p3,
        genes = gplots,
