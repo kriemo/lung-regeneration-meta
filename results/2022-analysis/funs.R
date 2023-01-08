@@ -17,6 +17,8 @@ get_correction_statistics <- function(sce,
 
 
 plot_correction_umaps <- function(sce){
+  cloupe_cols <- rev(RColorBrewer::brewer.pal(11, "RdGy")[c(1:5, 7)])
+
   pstudy_split <- plotUMAP(sce,
                  point_size = 0.5,
                  colour_by = "cell_type",
@@ -54,10 +56,12 @@ plot_correction_umaps <- function(sce){
     "Foxj1"
   )
   gplots <- lapply(to_plot, function(x){
-    plotUMAP(sce[, sce$random_order],
+    idx <- order(logcounts(sce[x, ]))
+    plotUMAP(sce[, idx],
              point_size = 0.5,
              colour_by = x,
              other_fields = "study") +
+      scale_color_gradientn(name = x, colors = cloupe_cols) +
       facet_wrap(~study)
   })
   names(gplots) <- to_plot
@@ -77,20 +81,24 @@ plot_correction_umaps <- function(sce){
   )
 
   ccaplots <- lapply(cca_to_plot, function(x){
-    plotUMAP(sce[, sce$random_order],
+    idx <- order(logcounts(sce[x, ]))
+    plotUMAP(sce[, idx],
              point_size = 0.5,
              colour_by = x,
              other_fields = "study") +
+      scale_color_gradientn(name = x, colors = cloupe_cols) +
       facet_wrap(~study)
   })
   names(ccaplots) <- cca_to_plot
 
   act_to_plot <- c("Lcn2", "Ly6i", "Il33")
   actplots <- lapply(act_to_plot, function(x){
-    plotUMAP(sce[, sce$random_order],
+    idx <- order(logcounts(sce[x, ]))
+    plotUMAP(sce[, idx],
              point_size = 0.5,
              colour_by = x,
              other_fields = "study") +
+      scale_color_gradientn(name = x, colors = cloupe_cols) +
       facet_wrap(~study)
   })
   names(actplots) <- act_to_plot
