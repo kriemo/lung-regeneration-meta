@@ -1,0 +1,127 @@
+---
+title: "Meta-analysis of murine lung regeneration studies: Figures"
+author: "Kent Riemondy"
+date: "`r Sys.Date()`"
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "html") })
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: cosmo
+    highlight: kate
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = FALSE)
+```
+
+```{r, results = 'hide', message = FALSE, warnings = FALSE}
+library(ComplexHeatmap)
+library(SingleCellExperiment)
+library(scran)
+library(scuttle)
+library(scater)
+library(batchelor)
+library(data.table)
+library(here)
+library(openxlsx)
+library(cowplot)
+data_dir <- here("data")
+formatted_data_dir <- "processed_data"
+fig_dir <- "figs"
+obj_dir <- "objects"
+mkrs_dir <- "tables"
+```
+
+## Heatmaps (scVI)
+
+Using 8 clusters.
+
+```{r}
+scvi_sce <- readRDS(file.path(obj_dir, "20221230_scvi_sce.rds"))
+scanvi_sce <- readRDS(file.path(obj_dir, "20221230_scanvi_sce.rds"))
+```
+
+
+```{r}
+fig_7b_genes <- c("Cdkn1a", "Cdkn2a", "Cdkn2b", "Trp53")
+
+fig_7d_genes <- c("Fn1", "Tmsb10", "Clu", "Ctgf", "Igfbp6", "Sox4", "Crlf1", "Pmepa1", "Adgrg1", "Tmsb4x", "Sfn", "Lgals1", "Rab1a", "Cldn4", "Rsrp1", "Sparc", "Fblim1", "Cyba", "Ramp1", "Pdgfb", "Serpinb9", "Lpcat4", "Ntm", "Marcksl1", "Mcam", "Pdlim7")
+
+fig_7j_genes <- c("Krt17", "Tpm1", "Sox4", "Cald1", "Sfn", "Fhl2", "Plau", "Phlda2", "Itga2", "Lamb3", "S100a2", "Atf3", "Zfp36l2", "Tpm4", "Palld", "Cdh3", "Ier3")
+
+fig_7l_genes <- c("Hopx", "Igfbp2", "Pdpn", "Sftpc", "Lamp3", "Sftpb", "Sftpd", "Abca3", "Itgb6", "Cldn4", "Krt8", "Krt7", "Tpm1", "Cald1", "Fhl2", "S100a2", "Tpm4", "Krt17", "Lamb3", "Zfp36l2", "Itga2")
+genes_to_plot <- list(fig_7b_genes = fig_7b_genes,
+                      fig_7d_genes = fig_7d_genes,
+                      fig_7j_genes = fig_7j_genes,
+                      fig_7l_genes = fig_7l_genes)
+
+genes_to_plot <- lapply(genes_to_plot, function(x){
+  missing_genes <- setdiff(x, rownames(scvi_sce))
+  if(length(missing_genes) > 0){
+    msg <- paste0(missing_genes, collapse = ", ")
+    warning("unable to find ", msg, " in matrix")
+  }
+  intersect(rownames(scvi_sce), x)
+})
+
+
+for(i in seq_along(genes_to_plot)){
+  id <- names(genes_to_plot)[i]
+  gns <- genes_to_plot[[i]]
+  p <- plotGroupedHeatmap(scvi_sce,
+                          features =gns, 
+                          group = "clusters_8",
+                          center = TRUE,
+                          scale = TRUE, 
+                          zlim = c(-2.5, 2.5), 
+                          cluster_cols = FALSE,
+                          colour = viridis::magma(101), 
+                     main = id)
+  p
+}
+
+```
+
+<br>
+<br>
+
+## Heatmaps (scanVI)
+
+Using 9 clusters. 
+
+```{r}
+
+for(i in seq_along(genes_to_plot)){
+  id <- names(genes_to_plot)[i]
+  gns <- genes_to_plot[[i]]
+  plotGroupedHeatmap(scanvi_sce,
+                          features = gns, 
+                          group = "clusters_9",
+                          center = TRUE,
+                          scale = TRUE, 
+                          zlim = c(-2.5, 2.5), 
+                          cluster_cols = FALSE,
+                          colour = viridis::magma(101), 
+                          main = id)
+}
+
+```
+
+
+## session info
+
+<details><summary>Show session info</summary>
+
+```{r code}
+sessionInfo()
+```
+
+</details>
+
