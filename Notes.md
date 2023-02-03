@@ -1,4 +1,6 @@
-
+## 2023-02-03
+  - Performed pseudotide with slingshot on harmony, scanVI, and scVI projections. 
+  
 ## 2023-01-14
   - Fixed heatmaps, was using an outdated singlecellexperiment object. 
   
