@@ -35,4 +35,15 @@ adata <- sceasy::convertFormat(sce,
                                transfer_layers = 'counts'
                                )
 
+sce_fn <-  here("results", "2022-analysis", "objects", "20221230_scvi_sce.rds")
+sce <- readRDS(sce_fn)
+out_h5 <- here("results", "2022-analysis", "objects", "20221230_scvi.h5ad")
+adata <- sceasy::convertFormat(sce,
+                               from="sce",
+                               to="anndata",
+                               outFile=out_h5,
+                               main_layer = 'logcounts',
+                               transfer_layers = 'counts'
+)
+
 # use google colab for scvi, instead of via local R or python, as it provides access to GPU

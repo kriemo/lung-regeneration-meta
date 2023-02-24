@@ -112,6 +112,12 @@ plot_correction_umaps <- function(sce){
        act_genes = actplots)
 }
 
+# https://stackoverflow.com/a/54136863/6276041
+quiet <- function(x) { 
+  sink(tempfile()) 
+  on.exit(sink()) 
+  invisible(force(x)) 
+} 
 
 # from scater
 
