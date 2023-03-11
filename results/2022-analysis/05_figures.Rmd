@@ -1,0 +1,117 @@
+---
+title: "Meta-analysis of murine lung regeneration studies: Pub Figures"
+author: "Kent Riemondy"
+date: "`r Sys.Date()`"
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "html") })
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: cosmo
+    highlight: kate
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = FALSE)
+```
+
+```{r, results = 'hide', message = FALSE, warnings = FALSE}
+library(ComplexHeatmap)
+library(SingleCellExperiment)
+library(scran)
+library(scuttle)
+library(scater)
+library(data.table)
+library(here)
+library(cowplot)
+data_dir <- here("data")
+formatted_data_dir <- "processed_data"
+fig_dir <- "figs"
+obj_dir <- "objects"
+mkrs_dir <- "tables"
+```
+
+
+```{r}
+sce <- readRDS(file.path(obj_dir, "20221230_scanvi_sce.rds"))
+relabel_studies <- c(
+  "Strunz_et_al_nc" =  "Bleomycin",
+  "Riemondy_et_al_JCI-insight" = "LPS" ,
+  "Kobayashi_et_al_ncb" = "Organoids"
+)
+sce$treatment <- factor(relabel_studies[sce$study])
+```
+
+Need to fix alignment...
+
+## Figure 6A
+
+Show plot of all cells, then cells from each study 
+
+```{r}
+trts <- unique(sce$treatment)
+
+theme_nothing <- theme_map() + theme(legend.position = "none")
+
+pstudy_all <- plotUMAP(sce,
+                 point_size = 0.5,
+                 colour_by = "treatment", 
+                 order_by = "random_order") + 
+  labs(title = "Combined") +
+  theme_nothing
+
+plts <- lapply(seq_along(trts), function(i) {
+  plotUMAP(sce[, sce$treatment == trts[i]],
+                 point_size = 0.5,
+                 colour_by = "treatment") + 
+    scale_color_manual(values = sccol_pals$tableau10medium[i]) + 
+    labs(title = trts[i]) +
+  theme_nothing
+})
+plot_grid(plotlist = c(list(pstudy_all), plts), nrow = 1)
+```
+
+## Figure 6B
+
+Show plot of all cells, then cells from each study, labeling the clusters 
+
+```{r, fig.width = 12, fig.height = 6}
+pstudy_all <- plotUMAP(sce,
+                 point_size = 0.5,
+                 colour_by = "clusters_9", 
+                 order_by = "random_order") + 
+  labs(title = "Combined") +
+  theme_nothing
+
+plts <- lapply(seq_along(trts), function(i) {
+  p <- plotUMAP(sce[, sce$treatment == trts[i]],
+                 point_size = 0.5,
+                 colour_by = "clusters_9") + 
+   # scale_color_manual(values = sccol_pals$tableau10medium[i]) + 
+    labs(title = trts[i]) 
+  if(i == length(trts)) {
+    p <- p + theme_map()
+  } else {
+    p <- p +  theme_nothing 
+  }
+  p
+})
+plot_grid(plotlist = c(list(pstudy_all), plts), nrow = 1, rel_widths = c(0.9, 0.9, 0.9, 1))
+```
+
+## session info
+
+<details><summary>Show session info</summary>
+
+```{r code}
+sessionInfo()
+```
+
+</details>
+

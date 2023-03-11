@@ -78,6 +78,17 @@ plot_cells(cds,
   scale_color_manual(values = sccol_pals$tableau10medium)
 ```
 
+
+```{r, fig.cap = "UMAP showing lineages overlayed on the clusters"}
+plot_cells(cds, 
+           color_cells_by = "clusters_8",
+           label_cell_groups = FALSE,
+           label_leaves = TRUE, 
+           label_branch_points = FALSE,
+           alpha = 0.66) +
+  scale_color_manual(values = sccol_pals$tableau10medium)
+```
+
 ## scanvi
 
 
@@ -107,7 +118,15 @@ plot_cells(cds,
   scale_color_manual(values = sccol_pals$tableau10medium)
 ```
 
-
+```{r, fig.cap = "UMAP showing lineages overlayed on the clusters"}
+plot_cells(cds, 
+           color_cells_by = "clusters_9",
+           label_cell_groups = FALSE,
+           label_leaves = TRUE, 
+           label_branch_points = FALSE,
+           alpha = 0.66) +
+  scale_color_manual(values = sccol_pals$tableau10medium)
+```
 
 
 ## harmony
@@ -130,6 +149,16 @@ cds <- quiet(learn_graph(cds))
 ```{r, fig.cap = "UMAP showing lineages overlayed on the cell types"}
 plot_cells(cds, 
            color_cells_by = "coarse_cell_type",
+           label_cell_groups = FALSE,
+           label_leaves = TRUE, 
+           label_branch_points = FALSE,
+           alpha = 0.66) +
+  scale_color_manual(values = sccol_pals$tableau10medium)
+```
+
+```{r, fig.cap = "UMAP showing lineages overlayed on the clusters"}
+plot_cells(cds, 
+           color_cells_by = "pt_labels",
            label_cell_groups = FALSE,
            label_leaves = TRUE, 
            label_branch_points = FALSE,
