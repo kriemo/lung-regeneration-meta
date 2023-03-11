@@ -56,15 +56,20 @@ scvi_sce <- scvi_sce[, scvi_sce$clusters_8 != "8"]
 scvi_sce$pt_labels <- ifelse(scvi_sce$cell_type == "Naive AEC2",
                              "Naive AE2",
                              scvi_sce$clusters_8)
-cds <- SeuratObject::as.Seurat(scvi_sce) |> SeuratWrappers::as.cell_data_set()
-
-# note that clustering is done on the UMAP...
-cds <- cluster_cells(cds)
-
-# all cells are in the same lineage for this analysis
-cds@clusters$UMAP$partitions <- setNames(rep(1, length(cds@clusters$UMAP$partitions)),
-                                         names(cds@clusters$UMAP$partitions))
-cds <- quiet(learn_graph(cds))
+if(!file.exists("objects/pt/monocle_scvi.rds")){
+  cds <- SeuratObject::as.Seurat(scvi_sce) |> SeuratWrappers::as.cell_data_set()
+  
+  # note that clustering is done on the UMAP...
+  cds <- cluster_cells(cds)
+  
+  # all cells are in the same lineage for this analysis
+  cds@clusters$UMAP$partitions <- setNames(rep(1, length(cds@clusters$UMAP$partitions)),
+                                           names(cds@clusters$UMAP$partitions))
+  cds <- quiet(learn_graph(cds))
+  saveRDS(cds, "objects/pt/monocle_scvi.rds")
+} else {
+  cds <- readRDS("objects/pt/monocle_scvi.rds")
+}
 ```
 
 
@@ -100,12 +105,18 @@ scanvi_sce$pt_labels <- ifelse(scanvi_sce$cell_type == "Naive AEC2",
                              "Naive AE2",
                              scanvi_sce$clusters_9)
 
-cds <- SeuratObject::as.Seurat(scanvi_sce) |> SeuratWrappers::as.cell_data_set()
-
-cds <- cluster_cells(cds)
-cds@clusters$UMAP$partitions <- setNames(rep(1, length(cds@clusters$UMAP$partitions)),
-                                         names(cds@clusters$UMAP$partitions))
-cds <- quiet(learn_graph(cds))
+if(!file.exists("objects/pt/monocle_scanvi.rds")){
+  cds <- SeuratObject::as.Seurat(scanvi_sce) |> SeuratWrappers::as.cell_data_set()
+  
+  cds <- cluster_cells(cds)
+  cds@clusters$UMAP$partitions <- setNames(rep(1, length(cds@clusters$UMAP$partitions)),
+                                           names(cds@clusters$UMAP$partitions))
+  cds <- quiet(learn_graph(cds))
+  
+  saveRDS(cds, "objects/pt/monocle_scanvi.rds")
+} else {
+  cds <- readRDS("objects/pt/monocle_scanvi.rds")
+}
 ```
 
 ```{r, fig.cap = "UMAP showing lineages overlayed on the cell types"}
@@ -137,13 +148,20 @@ hm_sce <- readRDS(file.path(obj_dir, "hm_sce.rds"))
 hm_sce$pt_labels <- ifelse(hm_sce$cell_type == "Naive AEC2",
                              "Naive AE2",
                              hm_sce$clusters_8)
-cds <- SeuratObject::as.Seurat(hm_sce) |> SeuratWrappers::as.cell_data_set()
 
-cds <- cluster_cells(cds)
-
-cds@clusters$UMAP$partitions <- setNames(rep(1, length(cds@clusters$UMAP$partitions)),
-                                         names(cds@clusters$UMAP$partitions))
-cds <- quiet(learn_graph(cds))
+if(!file.exists("objects/pt/monocle_harmony.rds")){
+  cds <- SeuratObject::as.Seurat(hm_sce) |> SeuratWrappers::as.cell_data_set()
+  
+  cds <- cluster_cells(cds)
+  
+  cds@clusters$UMAP$partitions <- setNames(rep(1, length(cds@clusters$UMAP$partitions)),
+                                           names(cds@clusters$UMAP$partitions))
+  cds <- quiet(learn_graph(cds))
+  
+  saveRDS(cds, "objects/pt/monocle_harmony.rds")
+} else {
+  cds <- readRDS("objects/pt/monocle_harmony.rds")
+}
 ```
 
 ```{r, fig.cap = "UMAP showing lineages overlayed on the cell types"}

@@ -21,7 +21,7 @@ knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_chunk$set(cache = FALSE)
 ```
 
-```{r, results = 'hide', message = FALSE, warnings = FALSE}
+```{r, results = 'hide', message = FALSE, warning = FALSE}
 library(ComplexHeatmap)
 library(SingleCellExperiment)
 library(scran)
@@ -32,9 +32,11 @@ library(here)
 library(cowplot)
 data_dir <- here("data")
 formatted_data_dir <- "processed_data"
-fig_dir <- "figs"
+fig_dir <- "final-figs"
+dir.create(fig_dir, showWarnings = FALSE)
 obj_dir <- "objects"
 mkrs_dir <- "tables"
+source("funs.R")
 ```
 
 
@@ -46,15 +48,28 @@ relabel_studies <- c(
   "Kobayashi_et_al_ncb" = "Organoids"
 )
 sce$treatment <- factor(relabel_studies[sce$study])
-```
 
-Need to fix alignment...
+id_clusters <- c(
+  "3" = "AEC2",
+  "8" = "AEC1",
+  "2" = "BASC",
+  "4" = "Proliferation",
+  "5" = "Proliferation",
+  "1" = "Transitional",
+  "7" = "Transitional",
+  "6" = "Differentiation",
+  "9" = "Club"
+)
+
+sce$broad_cell_types <- factor(id_clusters[sce$clusters_9], levels = unique(id_clusters))
+
+```
 
 ## Figure 6A
 
 Show plot of all cells, then cells from each study 
 
-```{r}
+```{r, fig.width = 12, fig.height = 6}
 trts <- unique(sce$treatment)
 
 theme_nothing <- theme_map() + theme(legend.position = "none")
@@ -63,18 +78,19 @@ pstudy_all <- plotUMAP(sce,
                  point_size = 0.5,
                  colour_by = "treatment", 
                  order_by = "random_order") + 
-  labs(title = "Combined") +
+  labs(subtitle = "Combined") + 
   theme_nothing
 
-plts <- lapply(seq_along(trts), function(i) {
-  plotUMAP(sce[, sce$treatment == trts[i]],
-                 point_size = 0.5,
-                 colour_by = "treatment") + 
-    scale_color_manual(values = sccol_pals$tableau10medium[i]) + 
-    labs(title = trts[i]) +
+pstudy_split <- plotUMAP(sce,
+                         point_size = 0.5,
+                         colour_by = "treatment",
+                         other_fields = "treatment") +
+  facet_wrap(~treatment) +
   theme_nothing
-})
-plot_grid(plotlist = c(list(pstudy_all), plts), nrow = 1)
+
+p <- plot_grid(pstudy_split, pstudy_all, nrow = 1, rel_widths = c(0.75, 0.25))
+save_plot(file.path(fig_dir, "6a-umap-by-study.pdf"), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
 ```
 
 ## Figure 6B
@@ -86,24 +102,362 @@ pstudy_all <- plotUMAP(sce,
                  point_size = 0.5,
                  colour_by = "clusters_9", 
                  order_by = "random_order") + 
-  labs(title = "Combined") +
+  labs(subtitle = "Combined") + 
+  guides(colour = guide_legend(title = NULL, override.aes = list(size = 6))) +
+  theme_map()
+
+pstudy_split <- plotUMAP(sce,
+                         point_size = 0.5,
+                         colour_by = "clusters_9",
+                         other_fields = "treatment") +
+  facet_wrap(~treatment) +
   theme_nothing
 
-plts <- lapply(seq_along(trts), function(i) {
-  p <- plotUMAP(sce[, sce$treatment == trts[i]],
-                 point_size = 0.5,
-                 colour_by = "clusters_9") + 
-   # scale_color_manual(values = sccol_pals$tableau10medium[i]) + 
-    labs(title = trts[i]) 
-  if(i == length(trts)) {
-    p <- p + theme_map()
-  } else {
-    p <- p +  theme_nothing 
-  }
-  p
-})
-plot_grid(plotlist = c(list(pstudy_all), plts), nrow = 1, rel_widths = c(0.9, 0.9, 0.9, 1))
+p <- plot_grid(pstudy_split, pstudy_all, nrow = 1, rel_widths = c(0.75, 0.25))
+save_plot(file.path(fig_dir, "6b-umap-by-cluster-and-study.pdf"), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
 ```
+
+
+## Figure 6C
+
+Cell type markers
+
+```{r, fig.width = 12, fig.height = 6}
+plot_mrks <- function(sce, gene = "Sftpc", ...){
+  x_rng <- range(reducedDim(sce, "UMAP")[, 1])
+  y_rng <- range(reducedDim(sce, "UMAP")[, 2])
+  
+  plts <- lapply(seq_along(trts), function(i) {
+    tmp_sce <- suppressMessages(sce[, sce$treatment == trts[i]])
+    idx <- suppressMessages(order(logcounts(tmp_sce[gene, ])))
+    brks <- suppressMessages(c(0, floor(max(logcounts(tmp_sce[gene, ])))))
+    suppressMessages(plotUMAP(tmp_sce[, idx],
+                              point_size = 0.5,
+                              colour_by = gene,
+                              other_fields = "study") +
+                       scale_color_gradientn(name = NULL, colors = cloupe_cols, breaks = brks) +
+                       labs(subtitle = trts[i]) +
+                       lims(x = x_rng, y = y_rng) + 
+                       theme_map())
+  })
+  
+  idx <- suppressMessages(order(logcounts(sce[gene, ])))
+  brks <- suppressMessages(c(0, floor(max(logcounts(sce[gene, ])))))
+  pstudy_all <- suppressMessages(plotUMAP(sce[, idx],
+                                          point_size = 0.5,
+                                          colour_by = gene,
+                                          other_fields = "study") +
+                                   scale_color_gradientn(name = NULL, 
+                                                         colors = cloupe_cols,
+                                                         breaks = brks) +
+                                   labs(subtitle = "Combined") +
+                                   theme_map())
+  
+  plts <- c(plts, list(pstudy_all))
+  p <- plot_grid(plotlist = plts, nrow = 1)
+  p
+}
+gene <- "Sftpc"
+p <- plot_mrks(sce, gene)
+save_plot(file.path(fig_dir, paste0("6c-aec2-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
+
+```
+
+
+```{r, fig.width = 12, fig.height = 6}
+gene <- "Pdpn"
+p <- plot_mrks(sce, gene)
+save_plot(file.path(fig_dir, paste0("6c-aec1-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
+```
+
+```{r, fig.width = 12, fig.height = 6}
+gene <- "Scgb1a1"
+p <- plot_mrks(sce, gene)
+save_plot(file.path(fig_dir, paste0("6c-basc-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
+```
+
+```{r, fig.width = 12, fig.height = 6}
+gene <- "Mki67"
+p <- plot_mrks(sce, gene)
+save_plot(file.path(fig_dir, paste0("6c-prolif-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
+```
+
+```{r, fig.width = 12, fig.height = 6}
+gene <- "Cldn4"
+p <- plot_mrks(sce, gene)
+save_plot(file.path(fig_dir, paste0("6c-transitional-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
+```
+
+```{r, fig.width = 12, fig.height = 6}
+gene <- "Sfn"
+p <- plot_mrks(sce, gene)
+save_plot(file.path(fig_dir, paste0("6c-transitional-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
+```
+
+## Figure 6E
+
+Not sure how best to show Igfbp2 expression, as it is more diffuse in this UMAP compared to previous analysis. 
+
+```{r, fig.width = 12, fig.height = 6}
+gene <- "Igfbp2"
+p <- plot_mrks(sce, gene)
+save_plot(file.path(fig_dir, paste0("6e-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
+```
+
+
+## Figure 6F
+
+Not sure how best to show AEC1 population. For now just replicating 6B.
+
+```{r, fig.width = 12, fig.height = 6}
+pstudy_all <- plotUMAP(sce,
+                 point_size = 0.5,
+                 colour_by = "clusters_9", 
+                 order_by = "random_order") + 
+  labs(subtitle = "Combined") + 
+  guides(colour = guide_legend(title = NULL, override.aes = list(size = 6))) +
+  theme_map()
+
+pstudy_split <- plotUMAP(sce,
+                         point_size = 0.5,
+                         colour_by = "clusters_9",
+                         other_fields = "treatment") +
+  facet_wrap(~treatment) +
+  theme_nothing
+
+p <- plot_grid(pstudy_split, pstudy_all, nrow = 1, rel_widths = c(0.75, 0.25))
+save_plot(file.path(fig_dir, "6f-aec1-zoom.pdf"), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
+```
+
+## 6H
+
+```{r, fig.width = 12, fig.height = 6}
+x_rng <- range(reducedDim(sce, "UMAP")[, 1])
+y_rng <- range(reducedDim(sce, "UMAP")[, 2])
+  
+ctypes <- levels(sce$broad_cell_types)
+ctypes <- setdiff(ctypes, "Club")
+plts <- lapply(seq_along(ctypes), function(i) {
+  tmp_sce <- sce
+  ct <- ctypes[i]
+  tmp_sce$tmp_cat <- ifelse(tmp_sce$broad_cell_types == ct, ct, "zzz") 
+  tmp_sce$tmp_cat <- factor(tmp_sce$tmp_cat, levels = c("zzz", ct))
+  suppressMessages(plotUMAP(tmp_sce[, order(tmp_sce$tmp_cat)],
+                            point_size = 0.5,
+                            colour_by = "tmp_cat") +
+                     scale_color_manual(values = c("grey50", 
+                                                   sccol_pals$tableau10medium[[1]])) +
+                     labs(subtitle = ct) +
+                     lims(x = x_rng, y = y_rng) + 
+                     theme_nothing)
+  })
+  
+p <- plot_grid(plotlist = plts, nrow = 2, ncol = 3)
+save_plot(file.path(fig_dir, "6h-umap-by-broad-cell-type.pdf"), 
+          p, base_asp = 1, base_height = 3, nrow = 2, ncol = 3)
+p
+```
+
+## 7A
+
+```{r}
+pstudy_all <- plotUMAP(sce,
+                 point_size = 0.5,
+                 colour_by = "clusters_9", 
+                 order_by = "random_order") + 
+  labs(subtitle = "Combined") + 
+  theme_nothing
+
+pc17 <- plotUMAP(sce[, sce$clusters_9 %in% c("1", "7")],
+                         point_size = 0.5,
+                         colour_by = "clusters_9",
+                         other_fields = "treatment") + 
+         scale_color_manual(values = sccol_pals$tableau10medium[c(1, 7)]) + 
+  guides(colour = guide_legend(title = NULL, override.aes = list(size = 6))) +
+  labs(subtitle = "Transitional clusters") + 
+  lims(x = x_rng, y = y_rng) + 
+  theme_map()
+
+p <- plot_grid(pstudy_all, pc17, nrow = 1)
+save_plot(file.path(fig_dir, "7a-subclusters.pdf"), p, base_asp = 0.75, nrow = 1, ncol = 2)
+p
+```
+
+## 7B
+
+```{r}
+fig_7b_genes <- c("Cdkn1a", "Cdkn2a", "Cdkn2b", "Trp53")
+
+fig_7d_genes <- c("Fn1", "Tmsb10", "Clu", "Ctgf", "Igfbp7", "Itgb6", "Sox4", "Crlf1", "Pmepa1", "Adgrg1", "Tmsb4x", "Sfn", "Lgals1", "Rab1a", "Cldn4", "Rsrp1", "Sparc", "Fblim1", "Cyba", "Ramp1", "Pdgfb", "Serpinb9", "Lpcat4", "Ntm", "Marcksl1", "Mcam", "Pdlim7")
+
+fig_7j_genes <- c("Krt17", "Tpm1", "Sox4", "Cald1", "Sfn", "Fhl2", "Plau", "Phlda2", "Itga2", "Lamb3", "S100a2", "Atf3", "Zfp36l2", "Tpm4", "Palld", "Cdh3", "Ier3")
+
+ fig_7l_genes <- c("Hopx", "Igfbp2", "Pdpn", "Sftpc", "Lamp3", "Sftpb", "Sftpd", "Abca3", "Itgb6", "Cldn4", "Krt8", "Krt7", "Tpm1", "Cald1", "Fhl2", "S100a2", "Tpm4", "Krt17", "Sox4", "Lamb3", "Zfp36l2", "Itga2")
+
+
+
+genes_to_plot <- list(fig_7b_genes = fig_7b_genes,
+                      fig_7d_genes = fig_7d_genes,
+                      fig_7j_genes = fig_7j_genes,
+                      fig_7l_genes = fig_7l_genes)
+
+genes_to_plot <- lapply(genes_to_plot, function(x){
+  missing_genes <- setdiff(x, rownames(sce))
+  if(length(missing_genes) > 0){
+    msg <- paste0(missing_genes, collapse = ", ")
+    warning("unable to find ", msg, " in matrix")
+  }
+  intersect(x, rownames(sce))
+})
+
+
+get_mean_zvals <- function(sce, genes, group = "clusters_9", clip = 2.5){
+  zs <- t(scale(t(as.matrix(logcounts(sce[genes, ])))))
+  avg_zs <-  sapply(split(colnames(zs), sce[[group]]), function(i) rowMeans(zs[, i]))
+  avg_zs[avg_zs > clip] <- clip
+  avg_zs[avg_zs < -clip] <- -clip
+  avg_zs
+}
+
+
+gns <- genes_to_plot$fig_7b_genes
+zs <- get_mean_zvals(sce, gns)
+Heatmap(zs[, c(7, 1)], 
+        name = "Mean\nZ-score", 
+        col = viridis::viridis(101),
+        cluster_rows = FALSE,
+        cluster_columns = FALSE)
+```
+
+```{r}
+Heatmap(zs, 
+        name = "Mean\nZ-score", 
+        col = viridis::viridis(101),
+        cluster_rows = FALSE,
+        cluster_columns = FALSE)
+```
+
+
+## 7D
+
+```{r}
+gns <- genes_to_plot$fig_7d_genes
+zs <- get_mean_zvals(sce, gns)
+to_highlight <- ifelse(gns %in% c("Fblim1", "Pdgfb", "Mcam", "Pdlim7"),
+                       "red", "black")
+
+Heatmap(zs[, c(7, 1)], 
+        name = "Mean\nZ-score", 
+        col = viridis::viridis(101),
+        cluster_rows = FALSE,
+        cluster_columns = FALSE, 
+        row_names_gp = gpar(col = to_highlight))
+```
+
+```{r}
+Heatmap(zs, 
+        name = "Mean\nZ-score", 
+        col = viridis::viridis(101),
+        cluster_rows = FALSE,
+        cluster_columns = FALSE, 
+        row_names_gp = gpar(col = to_highlight))
+```
+
+
+## 7J
+
+```{r}
+gns <- genes_to_plot$fig_7j_genes
+zs <- get_mean_zvals(sce, gns)
+
+Heatmap(zs[, c(7, 1)], 
+        name = "Mean\nZ-score", 
+        col = viridis::viridis(101),
+        cluster_rows = FALSE,
+        cluster_columns = FALSE)
+```
+
+```{r}
+Heatmap(zs, 
+        name = "Mean\nZ-score", 
+        col = viridis::viridis(101),
+        cluster_rows = FALSE,
+        cluster_columns = FALSE)
+```
+
+
+## 7J
+
+```{r}
+gns <- genes_to_plot$fig_7l_genes
+zs <- get_mean_zvals(sce, gns)
+
+Heatmap(zs[, c(3, 1, 7)], 
+        name = "Mean\nZ-score", 
+        col = viridis::viridis(101),
+        cluster_rows = FALSE,
+        cluster_columns = FALSE)
+```
+
+
+```{r}
+Heatmap(zs, 
+        name = "Mean\nZ-score", 
+        col = viridis::viridis(101),
+        cluster_rows = FALSE,
+        cluster_columns = FALSE)
+```
+
+
+## 7C
+
+```{r}
+library(monocle3)
+cds <- readRDS("objects/pt/monocle_scanvi.rds")
+p <- plot_cells(cds, 
+           color_cells_by = "clusters_9",
+           label_cell_groups = FALSE,
+           label_leaves = TRUE, 
+           label_branch_points = FALSE,
+           alpha = 0.66) +
+  scale_color_manual(values = sccol_pals$tableau10medium) +
+  theme_nothing
+
+p
+save_plot(file.path(fig_dir, "7c-monocle.pdf"), p, base_asp = 1)
+```
+
+```{r slingshot}
+library(slingshot)
+sce.sling <- readRDS("objects/pt/scanvi.rds")
+embedded <- embedCurves(sce.sling, "UMAP")
+lin_names <- colnames(colData(sce.sling))[grepl("slingPseudotime",
+                                                colnames(colData(sce.sling)))]
+```
+
+```{r}
+gg <- plotUMAP(sce.sling, colour_by="clusters_9", point_size = 0.5)
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  gg <- gg + geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+}
+p <- gg + theme_nothing
+p
+save_plot(file.path(fig_dir, "7c-slingshot.pdf"), p, base_asp = 1)
+```
+
+
 
 ## session info
 

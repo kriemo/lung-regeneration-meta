@@ -256,3 +256,5 @@ sccol_pals <- list(
              "#6F63BB"
   )
 )
+
+cloupe_cols <- rev(RColorBrewer::brewer.pal(11, "RdGy")[c(1:5, 7)])
