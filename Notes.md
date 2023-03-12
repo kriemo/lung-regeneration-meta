@@ -1,4 +1,23 @@
 
+## 2023-03-10
+  - Reorganized oneDrive:
+  .html reports are now in reports, with most recent results oin 2023-03-12 directory, prior versions in the "prior" directory
+  the marker gene tables are placed in directories in results/2023-03-12/tables. 
+  
+  - plotted trajectories over clusters (See results/2023-03-12/05_figures.html)
+  - recomputed markers using findMarkers from scran (See results/2023-03-12/tables/scanvi/clusters_9.xlsx)
+  - plot umaps with max per study (See results/2023-03-12/05_figures.html)
+  - started making publication figures (See results/2023-03-12/05_figures.html)
+  - checked on cell #s from each study fall into cluster 7 from scvi and scanvi clusters (See results/2023-03-12/04_figures.html)
+  
+  - Scvi 
+  Kobayashi_et_al_ncb Riemondy_et_al_JCI-insight Strunz_et_al_nc
+                  77                        112              59
+                  
+  - scanvi
+   Kobayashi_et_al_ncb Riemondy_et_al_JCI-insight Strunz_et_al_nc
+                 103                        219             244
+  
 ## 2023-02-24
   - Generated marker tables and figures comparing the transitional and aberrant basaloid populations
   - Built a UCSC cellbrowser for the scvi and scanvi integrations, hosted on aws S3 @  http://lung-meta-2023-zemans.s3-website-us-west-2.amazonaws.com/. 
