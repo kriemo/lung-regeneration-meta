@@ -10,13 +10,9 @@
   - started making publication figures (See results/2023-03-12/05_figures.html)
   - checked on cell #s from each study fall into cluster 7 from scvi and scanvi clusters (See results/2023-03-12/04_figures.html)
   
-  - Scvi 
-  Kobayashi_et_al_ncb Riemondy_et_al_JCI-insight Strunz_et_al_nc
-                  77                        112              59
+  - Scvi  Kobayashi_et_al_ncb (77) Riemondy_et_al_JCI-insight (112) Strunz_et_al_nc (59)
                   
-  - scanvi
-   Kobayashi_et_al_ncb Riemondy_et_al_JCI-insight Strunz_et_al_nc
-                 103                        219             244
+  - scanvi Kobayashi_et_al_ncb (103) Riemondy_et_al_JCI-insight (219) Strunz_et_al_nc (244)
   
 ## 2023-02-24
   - Generated marker tables and figures comparing the transitional and aberrant basaloid populations
