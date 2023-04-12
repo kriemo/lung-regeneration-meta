@@ -35,7 +35,8 @@ pkgs <- c("openxlsx",
           "immunogenomics/harmony",
           "immunogenomics/presto",
           "cellgeni/sceasy",
-          "rnabioco/scbp")
+          "rnabioco/scbp",
+          "markdown")
 
 BiocManager::install(pkgs, Ncpus = 6, version = "3.16")
 
@@ -48,8 +49,9 @@ BiocManager::install(monocle3_pkgs, Ncpus = 6, version = "3.16")
 # need to also use archived version of Matrix.utils, as it is no longer on CRAN
 install.packages("https://cran.r-project.org/src/contrib/Archive/Matrix.utils/Matrix.utils_0.9.8.tar.gz", dependencies = TRUE, type = "source", repos = NULL)
 
+# and archived speedglm... 
+devtools::install_version('speedglm', '0.3-4', repos = 'https://packagemanager.rstudio.com/cran/2023-03-31')
+
 BiocManager::install(c('cole-trapnell-lab/monocle3', 
                        'satijalab/seurat-wrappers'),
                      Ncpus = 6, version = "3.16")
-
-

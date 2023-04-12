@@ -65,6 +65,31 @@ sce$broad_cell_types <- factor(id_clusters[sce$clusters_9], levels = unique(id_c
 
 ```
 
+```{r}
+# custom palette requested to use
+rbow_pal_lst <- list(
+  "red" = "#FF0000",
+  "orange" = "#FF7F00",
+  "green" = "#00C000",
+  "yellow" = "#FFFF00",
+  "light_magenta" = "#F74ED6",
+  "blue_cyan" = "#007FFF",
+  "dark_magenta" = "#6A1B9A",
+  "cyan" = "#00FFFF",
+  "blue" = "#0000FF"
+#  "#FF007F",
+)
+rbow_pal <- unlist(rbow_pal_lst, use.names = FALSE)
+
+bgp_pal <- c(
+  "#0277BD",
+  "#689F38",
+  "#6A1B9A"
+)
+```
+
+# Main figures 
+
 ## Figure 6A
 
 Show plot of all cells, then cells from each study 
@@ -78,6 +103,7 @@ pstudy_all <- plotUMAP(sce,
                  point_size = 0.5,
                  colour_by = "treatment", 
                  order_by = "random_order") + 
+  scale_color_manual(values = bgp_pal) + 
   labs(subtitle = "Combined") + 
   theme_nothing
 
@@ -85,11 +111,14 @@ pstudy_split <- plotUMAP(sce,
                          point_size = 0.5,
                          colour_by = "treatment",
                          other_fields = "treatment") +
+  scale_color_manual(values = bgp_pal) + 
   facet_wrap(~treatment) +
   theme_nothing
 
 p <- plot_grid(pstudy_split, pstudy_all, nrow = 1, rel_widths = c(0.75, 0.25))
-save_plot(file.path(fig_dir, "6a-umap-by-study.pdf"), p, base_asp = 0.75, nrow = 1, ncol = 4)
+save_plot(file.path(fig_dir, "6a-umap-by-study.pdf"), 
+          p, 
+          base_asp = 0.75, nrow = 1, ncol = 4)
 p
 ```
 
@@ -101,7 +130,9 @@ Show plot of all cells, then cells from each study, labeling the clusters
 pstudy_all <- plotUMAP(sce,
                  point_size = 0.5,
                  colour_by = "clusters_9", 
-                 order_by = "random_order") + 
+                 order_by = "random_order",
+                 point_alpha = 1) + 
+  scale_color_manual(values = rbow_pal) + 
   labs(subtitle = "Combined") + 
   guides(colour = guide_legend(title = NULL, override.aes = list(size = 6))) +
   theme_map()
@@ -109,12 +140,16 @@ pstudy_all <- plotUMAP(sce,
 pstudy_split <- plotUMAP(sce,
                          point_size = 0.5,
                          colour_by = "clusters_9",
-                         other_fields = "treatment") +
+                         other_fields = "treatment",
+                         point_alpha = 1) +
+  scale_color_manual(values = rbow_pal) + 
   facet_wrap(~treatment) +
   theme_nothing
 
 p <- plot_grid(pstudy_split, pstudy_all, nrow = 1, rel_widths = c(0.75, 0.25))
-save_plot(file.path(fig_dir, "6b-umap-by-cluster-and-study.pdf"), p, base_asp = 0.75, nrow = 1, ncol = 4)
+
+save_plot(file.path(fig_dir, "6b-umap-by-cluster-and-study.pdf"), p,
+          base_asp = 0.75, nrow = 1, ncol = 4)
 p
 ```
 
@@ -124,12 +159,12 @@ p
 Cell type markers
 
 ```{r, fig.width = 12, fig.height = 6}
-plot_mrks <- function(sce, gene = "Sftpc", ...){
+plot_mrks <- function(sce, gene = "Sftpc", treatments = levels(trts), ...){
   x_rng <- range(reducedDim(sce, "UMAP")[, 1])
   y_rng <- range(reducedDim(sce, "UMAP")[, 2])
   
-  plts <- lapply(seq_along(trts), function(i) {
-    tmp_sce <- suppressMessages(sce[, sce$treatment == trts[i]])
+  plts <- lapply(seq_along(treatments), function(i) {
+    tmp_sce <- suppressMessages(sce[, sce$treatment == treatments[i]])
     idx <- suppressMessages(order(logcounts(tmp_sce[gene, ])))
     brks <- suppressMessages(c(0, floor(max(logcounts(tmp_sce[gene, ])))))
     suppressMessages(plotUMAP(tmp_sce[, idx],
@@ -137,7 +172,7 @@ plot_mrks <- function(sce, gene = "Sftpc", ...){
                               colour_by = gene,
                               other_fields = "study") +
                        scale_color_gradientn(name = NULL, colors = cloupe_cols, breaks = brks) +
-                       labs(subtitle = trts[i]) +
+                       labs(subtitle = treatments[i]) +
                        lims(x = x_rng, y = y_rng) + 
                        theme_map())
   })
@@ -158,48 +193,35 @@ plot_mrks <- function(sce, gene = "Sftpc", ...){
   p <- plot_grid(plotlist = plts, nrow = 1)
   p
 }
-gene <- "Sftpc"
-p <- plot_mrks(sce, gene)
-save_plot(file.path(fig_dir, paste0("6c-aec2-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
-p
-
-```
-
-
-```{r, fig.width = 12, fig.height = 6}
-gene <- "Pdpn"
-p <- plot_mrks(sce, gene)
-save_plot(file.path(fig_dir, paste0("6c-aec1-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
-p
 ```
 
 ```{r, fig.width = 12, fig.height = 6}
-gene <- "Scgb1a1"
-p <- plot_mrks(sce, gene)
-save_plot(file.path(fig_dir, paste0("6c-basc-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
-p
+genes_to_plot <- c(
+  "Sftpc" = "aec2",
+  "Pdpn" = "aec1",
+  "Scgb1a1" = "basc",
+  "Mki67" = "prolif",
+  "Cldn4" = "transitional",
+  "Sfn"= "transitional")
+  
+plts <- lapply(seq_along(genes_to_plot)[1], function(i) {
+  ct = genes_to_plot[i]
+  gn = names(genes_to_plot)[i]
+  p <- plot_mrks(sce, gn)
+  
+  save_plot(
+    file.path(fig_dir, paste0("6c-", ct, "-", gn, ".pdf")),
+    p,
+    base_asp = 1,
+    nrow = 1,
+    ncol = 4
+  )
+  p
+})
+
+plts
 ```
 
-```{r, fig.width = 12, fig.height = 6}
-gene <- "Mki67"
-p <- plot_mrks(sce, gene)
-save_plot(file.path(fig_dir, paste0("6c-prolif-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
-p
-```
-
-```{r, fig.width = 12, fig.height = 6}
-gene <- "Cldn4"
-p <- plot_mrks(sce, gene)
-save_plot(file.path(fig_dir, paste0("6c-transitional-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
-p
-```
-
-```{r, fig.width = 12, fig.height = 6}
-gene <- "Sfn"
-p <- plot_mrks(sce, gene)
-save_plot(file.path(fig_dir, paste0("6c-transitional-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
-p
-```
 
 ## Figure 6E
 
@@ -208,7 +230,13 @@ Not sure how best to show Igfbp2 expression, as it is more diffuse in this UMAP 
 ```{r, fig.width = 12, fig.height = 6}
 gene <- "Igfbp2"
 p <- plot_mrks(sce, gene)
-save_plot(file.path(fig_dir, paste0("6e-", gene[1], ".pdf")), p, base_asp = 0.75, nrow = 1, ncol = 4)
+save_plot(
+  file.path(fig_dir, paste0("6e-", gene[1], ".pdf")),
+  p,
+  base_asp = 1,
+  nrow = 1,
+  ncol = 4
+)
 p
 ```
 
@@ -220,21 +248,56 @@ Not sure how best to show AEC1 population. For now just replicating 6B.
 ```{r, fig.width = 12, fig.height = 6}
 pstudy_all <- plotUMAP(sce,
                  point_size = 0.5,
-                 colour_by = "clusters_9", 
+                 colour_by = "treatment", 
                  order_by = "random_order") + 
+  scale_color_manual(values = bgp_pal) + 
   labs(subtitle = "Combined") + 
-  guides(colour = guide_legend(title = NULL, override.aes = list(size = 6))) +
-  theme_map()
+  theme_nothing
 
 pstudy_split <- plotUMAP(sce,
                          point_size = 0.5,
-                         colour_by = "clusters_9",
+                         colour_by = "treatment",
                          other_fields = "treatment") +
+  scale_color_manual(values = bgp_pal) + 
   facet_wrap(~treatment) +
   theme_nothing
 
 p <- plot_grid(pstudy_split, pstudy_all, nrow = 1, rel_widths = c(0.75, 0.25))
-save_plot(file.path(fig_dir, "6f-aec1-zoom.pdf"), p, base_asp = 0.75, nrow = 1, ncol = 4)
+save_plot(file.path(fig_dir, "6f-umap-by-study-aec-all.pdf"), p, base_asp = 0.75, nrow = 1, ncol = 4)
+p
+```
+
+```{r, fig.width = 12, fig.height = 6}
+zoom_x <- c(11.25, 11.75)
+zoom_y <- c(1.25, 1.75)
+u <- reducedDims(sce)$UMAP
+pass_x <- u[, 1] > zoom_x[1] & u[, 1] < zoom_x[2]
+pass_y <- u[, 2] > zoom_y[1] & u[, 2] < zoom_y[2]
+mx <- mean(u[pass_x & pass_y, 1])
+my <- mean(u[pass_x & pass_y, 2])
+sf <- 0.05
+pstudy_all <- plotUMAP(sce,
+                       colour_by = "treatment", 
+                       order_by = "random_order", 
+                       point_size = 3) + 
+  scale_color_manual(values = bgp_pal) + 
+  labs(subtitle = "Combined") + 
+  lims(x = c(mx - sf, mx + sf), 
+       y = c(my - sf, my + sf)) + 
+  theme_nothing 
+
+pstudy_split <- plotUMAP(sce,
+                         point_size = 3,
+                         colour_by = "treatment",
+                         other_fields = "treatment") +
+  lims(x = c(mx - sf, mx + sf), 
+       y = c(my - sf, my + sf)) + 
+  scale_color_manual(values = bgp_pal) + 
+  facet_wrap(~treatment) +
+  theme_nothing
+
+p <- plot_grid(pstudy_split, pstudy_all, nrow = 1, rel_widths = c(0.75, 0.25))
+save_plot(file.path(fig_dir, "6f-umap-by-study-aec-zoom.pdf"), p, base_asp = 0.75, nrow = 1, ncol = 4)
 p
 ```
 
@@ -281,7 +344,7 @@ pc17 <- plotUMAP(sce[, sce$clusters_9 %in% c("1", "7")],
                          point_size = 0.5,
                          colour_by = "clusters_9",
                          other_fields = "treatment") + 
-         scale_color_manual(values = sccol_pals$tableau10medium[c(1, 7)]) + 
+         scale_color_manual(values = rbow_pal[c(1, 7)]) + 
   guides(colour = guide_legend(title = NULL, override.aes = list(size = 6))) +
   labs(subtitle = "Transitional clusters") + 
   lims(x = x_rng, y = y_rng) + 
@@ -347,6 +410,7 @@ Heatmap(zs,
 ```
 
 
+
 ## 7D
 
 ```{r}
@@ -395,7 +459,7 @@ Heatmap(zs,
 ```
 
 
-## 7J
+## 7l
 
 ```{r}
 gns <- genes_to_plot$fig_7l_genes
@@ -429,7 +493,7 @@ p <- plot_cells(cds,
            label_leaves = TRUE, 
            label_branch_points = FALSE,
            alpha = 0.66) +
-  scale_color_manual(values = sccol_pals$tableau10medium) +
+  scale_color_manual(values = rbow_pal) +
   theme_nothing
 
 p
@@ -457,9 +521,471 @@ p
 save_plot(file.path(fig_dir, "7c-slingshot.pdf"), p, base_asp = 1)
 ```
 
+## additional
+
+```{r}
+plts <- list()
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  p <- plotUMAP(sce.sling, colour_by=lin) + 
+    geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1) +
+    scale_color_viridis_c(name = paste0("Path ", i)) + 
+    theme_map()
+  plts[[i]] <- p
+}
+p <- plot_grid(plotlist = plts, nrow = 2, ncol = 2)
+
+save_plot(
+    file.path(fig_dir, "additional-slingshot.pdf"),
+    p,
+    base_asp = 1.2,
+    nrow = 2,
+    ncol = 2
+  )
+p
+
+```
 
 
-## session info
+```{r, fig.width = 12, fig.height = 6}
+x_rng <- range(reducedDim(sce, "UMAP")[, 1])
+y_rng <- range(reducedDim(sce, "UMAP")[, 2])
+  
+clusts <- c("7", "1")
+plts <- lapply(seq_along(clusts), function(i) {
+  tmp_sce <- sce
+  ct <- clusts[i]
+  tmp_sce$tmp_cat <- ifelse(tmp_sce$clusters_9 == ct, ct, "zzz") 
+  tmp_sce$tmp_cat <- factor(tmp_sce$tmp_cat, levels = c("zzz", ct))
+  suppressMessages(plotUMAP(tmp_sce[, order(tmp_sce$tmp_cat)],
+                            point_size = 0.5,
+                            colour_by = "tmp_cat") +
+                     scale_color_manual(values = c("grey50", 
+                                                   sccol_pals$tableau10medium[[1]])) +
+                     labs(subtitle = paste0("cluster-", ct)) +
+                     lims(x = x_rng, y = y_rng) + 
+                     theme_nothing)
+  })
+  
+p <- plot_grid(plotlist = plts, nrow = 1, ncol = 2)
+save_plot(file.path(fig_dir, "additional-umap-by-cluster7_and_1.pdf"), 
+          p, base_asp = 1, base_height = 3, nrow = 1, ncol = 2)
+p
+```
+
+# Supplemental figures
+
+## 6AB
+
+```{r, fig.width = 12, fig.height = 6}
+genes_to_plot <- c(
+  "Lyz2" = "aec2",
+  
+  "Clic5" = "aec1",
+  "Igfbp2" = "aec1",
+  "Hopx" = "aec1",
+  "Emp2" = "aec1",
+  "Akap5" = "aec1",
+  "Ager" = "aec1",
+  
+  "Scgb3a2" = "basc",
+  
+  "Top2a" = "prolif",
+  "Krt8" = "transitional")
+  
+plts <- lapply(seq_along(genes_to_plot), function(i) {
+  ct = genes_to_plot[i]
+  gn = names(genes_to_plot)[i]
+  p <- plot_mrks(sce, gn)
+  
+  save_plot(
+    file.path(fig_dir, paste0("supplement-6ab-", ct, "-", gn, ".pdf")),
+    p,
+    base_asp = 0.75,
+    nrow = 1,
+    ncol = 4
+  )
+  p
+})
+
+plts
+```
+
+## 6C
+
+```{r}
+strunz_mdat <- colData(readRDS(file.path(data_dir,
+                                         "Strunz_et_al_nc", 
+                                         "sce.rds")))
+sce$strunz_et_al_timepoint <- strunz_mdat[colnames(sce), ]$time_point
+```
+
+### bleo
+
+```{r}
+study <- "Strunz_et_al_nc"
+study_cell_types <- unique(sce[, sce$study == study]$cell_type)
+plts <- list()
+for(i in seq_along(study_cell_types)){
+  ct <- study_cell_types[i]
+  tmp_sce <- sce
+  tmp_sce$plt <- NA
+  to_plot <- tmp_sce$cell_type == ct & tmp_sce$study == study
+  tmp_sce$plt[to_plot] <- TRUE
+  tmp_sce <- tmp_sce[, order(tmp_sce$plt, na.last = FALSE)]
+  p <- plotUMAP(tmp_sce, 
+                colour_by = "plt",
+                point_size = 0.5) +
+    scale_color_manual(values = sccol_pals$tableau10medium[[1]]) + 
+    labs(subtitle = ct) + 
+    theme_nothing +
+    theme(plot.subtitle = element_text(size = 10)) 
+    
+  plts[[i]] <- p
+}
+
+tmp_sce <- sce
+tmp_sce$plt <- NA
+to_plot <- which(tmp_sce$strunz_et_al_timepoint == "d14_PBS" & 
+  tmp_sce$study == study)
+
+tmp_sce$plt[to_plot] <- TRUE
+tmp_sce <- tmp_sce[, order(tmp_sce$plt, na.last = FALSE)]
+p <- plotUMAP(tmp_sce,
+              colour_by = "plt",
+              point_size = 0.5) +
+  scale_color_manual(values = viridis::viridis(10)[3]) + 
+  labs(subtitle = "PBS") + 
+  theme_nothing +
+  theme(plot.subtitle = element_text(size = 10)) 
+  
+plts <- append(plts, list(p))
+nc <- 3
+nr <- ceiling((length(study_cell_types) + 1) / nc)
+
+
+p <- plot_grid(plotlist = plts, 
+               nrow = nr,
+               ncol = nc)
+save_plot(
+    file.path(fig_dir, "supplement-6c-bleo-celltypes.pdf"),
+    p,
+    base_asp = 0.75,
+    nrow = nr,
+    ncol = nc
+  )
+p
+```
+
+### lps
+
+```{r}
+study <- "Riemondy_et_al_JCI-insight"
+study_cell_types <- unique(sce[, sce$study == study]$cell_type)
+plts <- list()
+for(i in seq_along(study_cell_types)){
+  ct <- study_cell_types[i]
+  tmp_sce <- sce
+  tmp_sce$plt <- NA
+  to_plot <- tmp_sce$cell_type == ct & tmp_sce$study == study
+  tmp_sce$plt[to_plot] <- TRUE
+  tmp_sce <- tmp_sce[, order(tmp_sce$plt, na.last = FALSE)]
+  p <- plotUMAP(tmp_sce, 
+                colour_by = "plt",
+                point_size = 0.5) +
+    scale_color_manual(values = viridis::viridis(10)[3]) + 
+    labs(subtitle = ct) + 
+    theme_nothing +
+    theme(plot.subtitle = element_text(size = 10)) 
+    
+  plts[[i]] <- p
+}
+
+tmp_sce <- sce
+tmp_sce$plt <- NA
+to_plot <- tmp_sce$cell_type %in% c("Other Injured AEC2",
+                                     "Naive AEC2") & 
+  tmp_sce$study == study
+
+tmp_sce$plt[to_plot] <- TRUE
+tmp_sce <- tmp_sce[, order(tmp_sce$plt, na.last = FALSE)]
+p <- plotUMAP(tmp_sce,
+              colour_by = "plt",
+              point_size = 0.5) +
+  scale_color_manual(values = viridis::viridis(10)[3]) + 
+  labs(subtitle = "Other injured AEC2 + Naive AEC2") + 
+  theme_nothing +
+  theme(plot.subtitle = element_text(size = 10)) 
+  
+plts <- append(plts, list(p))
+nc <- 3
+nr <- ceiling((length(study_cell_types) + 1) / nc)
+
+
+p <- plot_grid(plotlist = plts, 
+               nrow = nr,
+               ncol = nc)
+save_plot(
+    file.path(fig_dir, "supplement-6c-lps-celltypes.pdf"),
+    p,
+    base_asp = 0.75,
+    nrow = nr,
+    ncol = nc
+  )
+p
+```
+
+```{r}
+study <- "Kobayashi_et_al_ncb"
+study_cell_types <- unique(sce[, sce$study == study]$cell_type)
+plts <- list()
+for(i in seq_along(study_cell_types)){
+  ct <- study_cell_types[i]
+  tmp_sce <- sce
+  tmp_sce$plt <- NA
+  to_plot <- tmp_sce$cell_type == ct & tmp_sce$study == study
+  tmp_sce$plt[to_plot] <- TRUE
+  tmp_sce <- tmp_sce[, order(tmp_sce$plt, na.last = FALSE)]
+  p <- plotUMAP(tmp_sce, 
+                colour_by = "plt",
+                point_size = 0.5) +
+    scale_color_manual(values = viridis::viridis(10)[3]) + 
+    labs(subtitle = ct) + 
+    theme_nothing +
+    theme(plot.subtitle = element_text(size = 10)) 
+    
+  plts[[i]] <- p
+}
+
+nc <- 3
+nr <- ceiling(length(study_cell_types) / nc)
+
+
+p <- plot_grid(plotlist = plts, 
+               nrow = nr,
+               ncol = nc)
+save_plot(
+    file.path(fig_dir, "supplement-6c-organoid-celltypes.pdf"),
+    p,
+    base_asp = 0.75,
+    nrow = nr,
+    ncol = nc
+  )
+p
+```
+
+```{r}
+pal <- colorRampPalette(scales::brewer_pal(pal = "Spectral")(11))
+p <- plotUMAP(sce,
+              point_size = 0.5,
+              colour_by = "cell_type",
+              other_fields = "treatment", 
+              point_alpha = 1) +
+  facet_wrap(~treatment) +
+  scale_color_manual(values = pal(length(unique(sce$cell_type)))) + 
+  guides(colour = guide_legend(title = NULL, override.aes = list(size = 2))) +
+  theme_map(font_size = 8)
+
+save_plot(
+    file.path(fig_dir, "supplement-6c-all-celltypes.pdf"),
+    p,
+    base_asp = 0.75,
+    nrow = 1,
+    ncol = 4
+  )
+p
+
+```
+
+## 7C
+
+```{r}
+to_plot <- c("1", "7")
+p <- plotUMAP(sce[, sce$clusters_9 %in% to_plot],
+              point_size = 0.5,
+              colour_by = "clusters_9",
+              other_fields = "treatment", 
+              point_alpha = 1) +
+  facet_wrap(~treatment) +
+  scale_color_manual(values = rbow_pal[c(1, 7)]) + 
+  guides(colour = guide_legend(title = NULL, override.aes = list(size = 2))) +
+  theme_map(font_size = 8)
+
+save_plot(
+    file.path(fig_dir, "supplement-7c-transitional-celltypes.pdf"),
+    p,
+    base_asp = 0.75,
+    nrow = 1,
+    ncol = 3
+  )
+p
+```
+
+## 7D
+
+```{r}
+to_plot <- c("Krt19", "Ndrg1")
+plts <- lapply(to_plot, function(x) {
+  idx <- suppressMessages(order(logcounts(sce[x, ])))
+  plotUMAP(sce[, idx],
+         point_size = 0.5,
+         colour_by = x) +
+  scale_color_gradientn(name = x, colors = cloupe_cols) +
+    theme_map()
+})
+p <- plot_grid(plotlist = plts, nrow = 1, ncol = 2)
+save_plot(
+    file.path(fig_dir, "supplement-7d.pdf"),
+    p,
+    base_asp = 1.2,
+    nrow = 1,
+    ncol = 2
+  )
+p
+```
+
+## 7E 
+
+```{r}
+library(monocle3)
+
+x_rng <- range(reducedDim(sce, "UMAP")[, 1])
+y_rng <- range(reducedDim(sce, "UMAP")[, 2])
+  
+cds <- readRDS("objects/pt/monocle_scanvi.rds")
+
+cds$treatment <- factor(relabel_studies[colData(cds)$study])
+
+plts <- lapply(levels(cds$treatment), function(x) {
+  plot_cells(cds[, colData(cds)$treatment == x], 
+           color_cells_by = "clusters_9",
+           label_cell_groups = FALSE,
+           label_leaves = TRUE, 
+           label_branch_points = FALSE,
+           alpha = 0.66) +
+  scale_color_manual(values = rbow_pal) +
+  labs(subtitle = x) + 
+  lims(x = x_rng, y = y_rng) + 
+  theme_nothing
+})
+
+p <- plot_grid(plotlist = plts, nrow = 1, ncol = 3)
+
+save_plot(
+    file.path(fig_dir, "supplement-7e-monocle_all_cells.pdf"),
+    p,
+    base_asp = 0.75,
+    nrow = 1,
+    ncol = 3
+  )
+p
+```
+
+```{r}
+zoom_x <- c(-0.5, 2.25)
+zoom_y <- c(4.75, 7.5)
+plts <- lapply(levels(cds$treatment), function(x) {
+  plot_cells(cds[, colData(cds)$treatment == x], 
+           color_cells_by = "clusters_9",
+           label_cell_groups = FALSE,
+           label_leaves = TRUE, 
+           label_branch_points = FALSE,
+           alpha = 0.66, cell_size = 1) +
+  scale_color_manual(values = rbow_pal) +
+  labs(subtitle = x) + 
+  lims(x = zoom_x, y = zoom_y) + 
+  theme_nothing
+})
+
+p <- plot_grid(plotlist = plts, nrow = 1, ncol = 3)
+
+save_plot(
+    file.path(fig_dir, "supplement-7e-monocle_zoom_cells.pdf"),
+    p,
+    base_asp = 0.75,
+    nrow = 1,
+    ncol = 3
+  )
+p
+```
+
+
+# Summary files 
+
+```{r}
+library(Seurat)
+sce <- readRDS(file.path(obj_dir, "20221230_scanvi_sce.rds"))
+scanvi_avg_log2_expr <- assay(summarizeAssayByGroup(sce, 
+                                                    sce$clusters_9,
+                                                    statistics = "mean",
+                                                    assay.type = "logcounts"))
+
+so <- as.Seurat(sce)
+so <- ScaleData(so, features = rownames(so))
+Idents(so) <- "clusters_9"
+scanvi_zscores <- AverageExpression(so,
+                        slot = "scale.data", 
+                        group.by = "clusters_9", 
+                        return.seurat = FALSE)$originalexp
+
+sce <- readRDS(file.path(obj_dir, "20221230_scvi_sce.rds"))
+scvi_avg_log2_expr <- assay(summarizeAssayByGroup(sce,
+                                                  sce$clusters_8,
+                                                  statistics = "mean", 
+                                                  assay.type = "logcounts"))
+
+so <- as.Seurat(sce)
+so <- Seurat::ScaleData(so, features = rownames(so))
+Idents(so) <- "clusters_8"
+scvi_zscores <- AverageExpression(so,
+                             slot = "scale.data", 
+                             group.by = "clusters_8", 
+                             return.seurat = FALSE)$originalexp
+
+out <- list(scanvi_avg_log2_expr = scanvi_avg_log2_expr, 
+            scanvi_zscores = scanvi_zscores, 
+            scvi_avg_log2_expr = scvi_avg_log2_expr,
+            scvi_zscores = scvi_zscores)
+
+out <- lapply(out, function(x){
+  colnames(x) <- paste0("cluster_", colnames(x))
+  x <- as.data.frame(cbind(gene = rownames(x), x))
+  rownames(x) <- NULL
+  class(x$gene) <- "Text"
+  x
+})
+  
+openxlsx::write.xlsx(out, 
+                     "tables/average_cell_statistics.xlsx",
+                     overwrite = TRUE)
+    
+```
+
+cell type compositions
+
+```{r}
+cell_counts <- as.data.frame.matrix(table(sce$clusters_9, sce$study) )
+fwrite(cbind(clusters = rownames(cell_counts), cell_counts),
+       "tables/cells_per_cluster_per_study.csv",
+       sep = ",",
+       quote = FALSE, 
+       col.names = TRUE, 
+       row.names = FALSE)
+
+tmp_sce <- sce[, sce$treatment == "Bleomycin" ]
+cell_counts <- as.data.frame.matrix(table(tmp_sce$clusters_9,
+                                          tmp_sce$strunz_et_al_timepoint) )
+fwrite(cbind(clusters = rownames(cell_counts), cell_counts),
+       "tables/bleo_cells_per_cluster_per_time_point.csv",
+       sep = ",",
+       quote = FALSE, 
+       col.names = TRUE, 
+       row.names = FALSE)
+```
+
+# session info
 
 <details><summary>Show session info</summary>
 

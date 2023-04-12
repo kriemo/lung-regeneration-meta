@@ -114,9 +114,9 @@ if(!file.exists(sce_fn)){
   sces <- lapply(studies_to_integrate, function(x) readRDS(file.path(data_dir, x, "sce.rds")))
   names(sces) <- studies_to_integrate
   study_dat <- list(cols = c("cell_type",
-                     "pretty_cell_labels", 
-                     "cell_type"),
-                   ctypes = study_specific_cell_types)
+                             "pretty_cell_labels", 
+                             "cell_type"),
+                    ctypes = study_specific_cell_types)
   
   shared_genes <- Reduce(intersect, sapply(sces, rownames))
   cols_to_keep <-  c("cell_type", "study") 

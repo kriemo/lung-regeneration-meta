@@ -181,7 +181,7 @@ for(i in seq_along(lin_names)){
 gg
 ```
 
-```{r, fig.cap = "UMAP showing linaeages overlayed over the clusters (note that cluster 9 was removed as it is most likely club cells"}
+```{r, fig.cap = "UMAP showing lineages overlayed over the clusters (note that cluster 9 was removed as it is most likely club cells"}
 gg <- plotUMAP(sce.sling, colour_by="clusters_9")
 for(i in seq_along(lin_names)){
   lin <- lin_names[i]

@@ -1,9 +1,12 @@
+## 2023-04-12
+  - Completed many of the figure changes
 
 ## 2023-03-10
   - Reorganized oneDrive:
   .html reports are now in reports, with most recent results oin 2023-03-12 directory, prior versions in the "prior" directory
   the marker gene tables are placed in directories in results/2023-03-12/tables. 
-  
+  pdf figures are in results/2023-03-12/final-figs
+
   - plotted trajectories over clusters (See results/2023-03-12/05_figures.html)
   - recomputed markers using findMarkers from scran (See results/2023-03-12/tables/scanvi/clusters_9.xlsx)
   - plot umaps with max per study (See results/2023-03-12/05_figures.html)
