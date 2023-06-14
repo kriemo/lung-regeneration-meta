@@ -106,7 +106,7 @@ There are strong batch effects, with no overlap between studies based on UMAP.
 
 ```{r}
 seed_val <- 20221217
-sce_fn <-  file.path(obj_dir, "uc_sce.rds")
+sce_fn <- file.path(obj_dir, "uc_sce.rds")
 
 if(!file.exists(sce_fn)){
   
@@ -131,16 +131,20 @@ if(!file.exists(sce_fn)){
     colData(sces[[i]]) <- colData(sces[[i]])[, cols_to_keep]
   }
   
+  # save object with un-scaled lognorm counts
+  saveRDS(do.call(cbind, sces), file.path(obj_dir, "uc_lognorm_sce.rds"))
+  
   outs <- multiBatchNorm(sces)
   all_dec <- lapply(outs, modelGeneVar)
   combined.dec <- combineVar(all_dec)
   chosen.hvgs <- getTopHVGs(combined.dec, n=5000)
   uc_sce <- do.call(cbind, outs)
   set.seed(seed_val)
+  
   mbpca <- multiBatchPCA(uc_sce,
-                          batch = uc_sce$study,
-                          subset.row = chosen.hvgs, 
-                          preserve.single = TRUE)
+                         batch = uc_sce$study,
+                         subset.row = chosen.hvgs, 
+                         preserve.single = TRUE)
   reducedDim(uc_sce, "PCA") <- mbpca[[1]]
   set.seed(seed_val)
   uc_sce <- runUMAP(uc_sce, dimred = "PCA", n_dimred = 30)

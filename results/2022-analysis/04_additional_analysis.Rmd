@@ -266,6 +266,99 @@ for(i in seq_along(gns)){
 table(scanvi_sce$clusters_9, scanvi_sce$study)
 ```
 
+
+## Examine ABI gene modules
+
+The "early differentiating" population from teh JCI-insight paper will be split into 2 subclusters. Top markers will be identified and used as a gene module to examine 
+
+```{r}
+sce.lps <- readRDS(here("data/Riemondy_et_al_JCI-insight/sce.rds"))
+
+reducedDims(sce.lps)$TSNE <- colData(sce.lps)[c("tSNE_1", "tSNE_2")]
+
+sce.lps <- logNormCounts(sce.lps)
+dec <- modelGeneVar(sce.lps)
+hvgs <- getTopHVGs(dec, n=3000)
+set.seed(10000)
+sce.lps <- denoisePCA(sce.lps, subset.row = hvgs, technical = dec)
+
+set.seed(1000000)
+sce.lps <- runUMAP(sce.lps, dimred="PCA")
+
+g <- buildSNNGraph(sce.lps, k=10, use.dimred = 'PCA')
+clust <- igraph::cluster_walktrap(g)
+metadata(sce.lps)$clustering <- clust
+
+colLabels(sce.lps) <- factor(metadata(sce.lps)$clustering$membership)
+plotTSNE(sce.lps, colour_by = "label")
+```
+
+```{r}
+sce.lps$subclusters <- ifelse(as.character(sce.lps$label) %in% c("12", "16", "25"),
+                                         paste0("abi_",as.character(sce.lps$label)),
+                                                as.character(sce.lps$pretty_cell_labels))
+plotTSNE(sce.lps, colour_by = "subclusters")
+```
+
+
+```{r}
+markers <- findMarkers(sce.lps, group = sce.lps$subclusters, pval.type = "some", min.prop = 0.7, direction = "up")
+
+all_mkrs <- presto::wilcoxauc(sce.lps, "subclusters")
+
+mkrs <- all_mkrs[all_mkrs$logFC > 0 & all_mkrs$padj < 0.05, ] 
+tip_genes_presto <- mkrs[mkrs$group == "abi_16", ]
+tip_genes_presto <- tip_genes_presto[order(tip_genes_presto$padj, -tip_genes_presto$logFC), ]
+tip_genes_presto <- tip_genes_presto$feature[1:200]
+
+abi_mrks <- list(tip_genes_fm = rownames(markers$abi_16[1:200, ]),
+                 tip_genes_presto = tip_genes_presto)
+
+abi_mrks <- lapply(abi_mrks, intersect, rownames(scvi_sce))
+
+```
+
+```{r}
+aggr <- sumCountsAcrossFeatures(sce.lps,
+                                abi_mrks, 
+                                exprs_values="logcounts", average=TRUE)
+
+plotTSNE(sce.lps, colour_by = I(aggr["tip_genes_presto", ]))
+```
+
+```{r}
+sce.bleo <- readRDS(here("data/Strunz_et_al_nc/sce.rds"))
+reducedDims(sce.bleo)$UMAP <- colData(sce.bleo)[c("umap_1", "umap_2")]
+plotUMAP(sce.bleo, colour_by = "cell_type")
+```
+
+```{r}
+aggr <- sumCountsAcrossFeatures(sce.bleo, abi_mrks, exprs_values="logcounts", average=TRUE)
+
+plotUMAP(sce.bleo, colour_by = I(aggr["tip_genes_fm", ]))
+```
+
+```{r}
+sce.org <- readRDS(here("data/Kobayashi_et_al_ncb/sce.rds"))
+sce.org <- logNormCounts(sce.org)
+dec <- modelGeneVar(sce.org)
+hvgs <- getTopHVGs(dec, n=3000)
+set.seed(10000)
+sce.org <- denoisePCA(sce.org, subset.row = hvgs, technical = dec)
+
+set.seed(1000000)
+sce.org <- runUMAP(sce.org, dimred="PCA")
+
+plotUMAP(sce.org, colour_by = "cell_type")
+```
+
+```{r}
+aggr <- sumCountsAcrossFeatures(sce.org, abi_mrks, exprs_values="logcounts", average=TRUE)
+
+plotUMAP(sce.org, colour_by = I(aggr["tip_genes_fm", ]))
+```
+
+
 ## session info
 
 <details><summary>Show session info</summary>
