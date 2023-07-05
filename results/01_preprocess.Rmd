@@ -1,0 +1,236 @@
+---
+title: "Meta-analysis of murine lung regeneration studies: prelude"
+author: "Kent Riemondy"
+date: "`r Sys.Date()`"
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "html") })
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: cosmo
+    highlight: kate
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ComplexHeatmap)
+library(SingleCellExperiment)
+library(scran)
+library(scuttle)
+library(scater)
+library(data.table)
+library(here)
+library(readxl)
+library(openxlsx)
+data_dir <- here("data")
+formatted_data_dir <- "processed_data"
+fig_dir <- "figs"
+
+dir.create(fig_dir, showWarnings = FALSE)
+dir.create(formatted_data_dir, showWarnings = FALSE)
+
+obj_dir <- "objects"
+dir.create(obj_dir, showWarnings = FALSE)
+```
+
+For each study, a study specific R script  (found in data/) will preprocess the data from public sources and save the dataset in a .rds file. 
+
+## Gene lists
+
+```{r}
+studies <- c(
+  "Kobayashi_et_al_ncb" = "41556_2020_542_MOESM2_ESM.xlsx",
+  "Riemondy_et_al_JCI-insight" = "2.14.2019_Suppl_Table_5.xlsx",
+  "Strunz_et_al_nc" = "41467_2020_17358_MOESM4_ESM.xlsx",
+  "Wu_et_al_cell" = "Nan Tang Table S2.xlsx"
+  )
+
+studies <- setNames(file.path(data_dir, names(studies), studies), names(studies))
+
+combined_markers <- list()
+combined_tables <- list()
+combined_expression <- list()
+```
+
+## Kobayashi_et_al_ncb
+
+
+>Kobayashi, Y., Tata, A., Konkimalla, A. et al. Persistence of a regeneration-associated, transitional alveolar epithelial cell state in pulmonary fibrosis. Nat Cell Biol 22, 934–946 (2020). https://doi.org/10.1038/s41556-020-0542-8
+
+Found a transitional cell state in epithelial lung organoids. 
+
+```{r}
+study_id <- "Kobayashi_et_al_ncb"
+mkrs <- studies[[study_id]]
+
+tbl <- read_excel(mkrs, skip = 1)[, 1:4] |> as.list()
+names(tbl) <- gsub("...[0-9]$", "", names(tbl))
+tbl <- lapply(seq_along(tbl), function(i){
+  x <- tbl[[i]]
+  data.frame(cell_type = names(tbl)[i],
+             gene = x[!is.na(x)])
+})
+tbl <- do.call(rbind, tbl)
+
+combined_markers[[study_id]] <- tbl[tbl$cell_type == "PATS", ]$gene
+combined_tables[[study_id]] <- tbl
+
+sce_fn <- file.path(data_dir, study_id, "sce.rds")
+
+if(!file.exists(sce_fn)) source(file.path(data_dir, "process_ncb.R"))
+
+sce <- readRDS(sce_fn)
+avg_expr <- assay(aggregateAcrossCells(sce,
+                                       ids = sce$cell_type,
+                                       statistics = "mean",
+                                       use.assay.type = "logcounts")) |>
+  as.data.frame()
+
+colnames(avg_expr) <- paste0(study_id, "::", colnames(avg_expr))
+combined_expression[[study_id]] <- avg_expr
+```
+
+## Riemondy_et_al_JCI-insight
+
+```{r}
+study_id <- "Riemondy_et_al_JCI-insight"
+mkrs <- studies[[study_id]]
+
+tbl <- read_excel(mkrs, sheet = 2,
+                  col_names = c(
+                    "Gene",
+                    "avg_logFC",
+                    "pct1",
+                    "pct2",
+                    "pval",
+                    "adj_p_val"
+                  ), skip = 1) 
+tbl <- tbl[tbl$adj_p_val < 0.05, ]
+tbl <- tbl[order(tbl$adj_p_val), ] 
+tbl <- as.data.frame(tbl)
+
+combined_markers[[study_id]] <-tbl$Gene
+combined_tables[[study_id]] <- tbl
+
+sce_fn <- file.path(data_dir, study_id, "sce.rds")
+if(!file.exists(sce_fn)) source(file.path(data_dir, "process_jci-insight.R"))
+sce <- readRDS(sce_fn)
+
+avg_expr <- assay(aggregateAcrossCells(sce,
+                                       ids = sce$pretty_cell_labels,
+                                       statistics = "mean",
+                                       use.assay.type = "logcounts")) |>
+  as.data.frame()
+
+avg_expr <- avg_expr[, c("Naive AEC1",
+                         "Naive AEC2",
+                         "Injured AEC2: Early Transdifferentiating",
+                         "Injured AEC2: Late Transdifferentiating", 
+                         "Injured AEC2: Proliferating", 
+                         "Other Injured AEC2"), drop = FALSE]
+colnames(avg_expr) <- paste0(study_id, "::", colnames(avg_expr))
+combined_expression[[study_id]] <- avg_expr
+```
+
+## Strunz_et_al_nc
+
+
+>
+Strunz M, Simon LM, Ansari M, et al. Alveolar regeneration through a Krt8+ transitional stem cell state that persists in human lung fibrosis. Nat Commun [Internet]. 2020;11:3559. Available from: http://dx.doi.org/10.1038/s41467-020-17358-3.
+
+```{r}
+study_id <- "Strunz_et_al_nc"
+mkrs <- studies[[study_id]]
+
+tbl <- read_excel(mkrs, sheet = 2)
+
+to_keep <- tbl$`annotated cluster` ==	"Krt8+ ADI" & 
+  tbl$p_val_adj < 0.05 & 
+  tbl$avg_logFC > 0
+
+tbl <- tbl[to_keep, ]
+tbl <- tbl[order(tbl$p_val_adj), ] 
+tbl <- as.data.frame(tbl)
+
+combined_markers[[study_id]] <- tbl$gene
+combined_tables[[study_id]] <- tbl
+
+
+sce_fn <- file.path(data_dir, study_id, "sce.rds")
+if(!file.exists(sce_fn)) source(file.path(data_dir, "process_nc.R"))
+
+sce <- readRDS(file.path(data_dir, study_id, "sce.rds"))
+avg_expr <- assay(aggregateAcrossCells(sce,
+                                       ids = sce$cell_type,
+                                       statistics = "mean",
+                                       use.assay.type = "logcounts")) |>
+  as.data.frame()
+
+avg_expr <- avg_expr[,
+                     c("Krt8+ ADI",
+                       "AT1",
+                       "AT2",
+                       "AT2 activated",
+                       "Mki67+ Proliferation")]
+colnames(avg_expr) <- paste0(study_id, "::", colnames(avg_expr))
+combined_expression[[study_id]] <- avg_expr
+```
+
+## Wu_et_al_cell
+
+>Wu H, Yu Y, Huang H, et al. Progressive Pulmonary Fibrosis Is Caused by Elevated Mechanical Tension on Alveolar Stem Cells. Cell [Internet]. 2020;180:107–121.e17. Available from: http://dx.doi.org/10.1016/j.cell.2019.11.027.
+
+```{r}
+study_id <- "Wu_et_al_cell"
+mkrs <- studies[[study_id]]
+
+tbl <- read_excel(mkrs, skip = 1) 
+tbl <- tbl[tbl$`fold change (subpopulation I AT2 cells/subpopulation II AT2 cells)` > 0, ]
+
+combined_markers[[study_id]] <- tbl$`Gene name`
+combined_tables[[study_id]] <- tbl
+
+avg_expr_d7 <- read_excel(file.path(data_dir, study_id, "C7.average.exp.xlsx"))
+colnames(avg_expr_d7)[1] <- "mouse_gene_name" 
+colnames(avg_expr_d7)[2:3] <- paste0(study_id, "::", colnames(avg_expr_d7)[2:3], "_d7")
+
+sce_fn <- file.path(data_dir, study_id, "sce.rds")
+if(!file.exists(sce_fn)) source(file.path(data_dir, "process_cell.R"))
+
+sce <- readRDS(sce_fn)
+avg_expr <- assay(aggregateAcrossCells(sce,
+                                       ids = sce$cell_type,
+                                       statistics = "mean",
+                                       use.assay.type = "logcounts")) |>
+  as.data.frame()
+
+colnames(avg_expr) <- paste0(study_id, "::", colnames(avg_expr))
+combined_expression[[study_id]] <- avg_expr
+```
+
+
+## Save 
+
+```{r}
+saveRDS(combined_markers, file.path(formatted_data_dir, "gene_lists.rds"))
+saveRDS(combined_tables, file.path(formatted_data_dir, "gene_tables.rds"))
+saveRDS(combined_expression, file.path(formatted_data_dir, "avg_expression.rds"))
+```
+
+## session info
+
+<details><summary>Show session info</summary>
+
+```{r code}
+sessionInfo()
+```
+
+</details>

@@ -1,0 +1,490 @@
+---
+title: "Meta-analysis of murine lung regeneration studies"
+author: "Kent Riemondy"
+date: "`r Sys.Date()`"
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "html") })
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: cosmo
+    highlight: kate
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(ComplexHeatmap)
+library(SingleCellExperiment)
+library(scran)
+library(scuttle)
+library(scater)
+library(batchelor)
+library(data.table)
+library(here)
+library(openxlsx)
+library(cowplot)
+
+data_dir <- here("data")
+formatted_data_dir <- "processed_data"
+fig_dir <- "figs"
+obj_dir <- "objects"
+mkrs_dir <- "tables"
+```
+
+## Reintegrate mouse data
+
+Here I've tested out a few integration approaches for integrating the 3 mouse lung regeneration studies. 
+
+
+```{r}
+studies_to_integrate <- c(
+  "Kobayashi_et_al_ncb",
+  "Riemondy_et_al_JCI-insight",
+  "Strunz_et_al_nc")
+
+study_specific_cell_types <- list(
+  "Kobayashi_et_al_ncb" = c(
+    "AEC1",
+    "AEC2",
+    "PATS-2",
+    "PATS-1",
+    "AEC2-proliferating"
+  ),
+  "Riemondy_et_al_JCI-insight" =   c(
+    "Naive AEC1",
+    "Naive AEC2",
+    "Injured AEC2: Early Transdifferentiating",
+    "Injured AEC2: Late Transdifferentiating",
+    "Injured AEC2: Proliferating",
+    "Other Injured AEC2"
+  ),
+  "Strunz_et_al_nc" =  c(
+    "Krt8+ ADI",
+    "Activated AT2 cells",
+    "AT1",
+    "AT2",
+    "Mki67+ Proliferation"
+  )
+)
+
+# cell type mapping used for scANVI
+
+map_to_coarse <- c(`PATS-2` = "Differentiating",
+                   `PATS-1` = "Transitional",
+                   `Injured AEC2: Early Transdifferentiating` = "Transitional", 
+                   `Injured AEC2: Late Transdifferentiating` = "Differentiating",
+                   `Krt8+ ADI` = "Transitional", 
+                   `Naive AEC1` = "AEC1",
+                   AEC1 = "Unknown", 
+                   AT1 = "Unknown", 
+                   AT2 = "AEC2", 
+                   AEC2 = "AEC2", 
+                   `Naive AEC2` = "AEC2",
+                   `Other Injured AEC2` = "AEC2", 
+                   `AEC2-proliferating` = "Proliferating", 
+                   `Mki67+ Proliferation` = "Proliferating", 
+                   `Injured AEC2: Proliferating` = "Proliferating")
+  
+```
+
+
+```{r}
+source("funs.R")
+```
+
+## No batch correction
+
+There are strong batch effects, with no overlap between studies based on UMAP. 
+
+```{r}
+seed_val <- 20221217
+sce_fn <- file.path(obj_dir, "uc_sce.rds")
+
+if(!file.exists(sce_fn)){
+  
+  bpp <- BiocParallel::MulticoreParam(6)
+  sces <- lapply(studies_to_integrate, function(x) readRDS(file.path(data_dir, x, "sce.rds")))
+  names(sces) <- studies_to_integrate
+  study_dat <- list(cols = c("cell_type",
+                             "pretty_cell_labels", 
+                             "cell_type"),
+                    ctypes = study_specific_cell_types)
+  
+  shared_genes <- Reduce(intersect, sapply(sces, rownames))
+  cols_to_keep <-  c("cell_type", "study") 
+  for(i in seq_along(sces)) {
+    id <- names(sces)[i]
+    cell_type_col <- study_dat$cols[i]
+    cell_types <- study_dat$ctypes[[i]]
+    sces[[i]]$study <- id
+    sces[[i]]$cell_type <- as.character(sces[[i]][[cell_type_col]])
+    to_keep <- sces[[i]]$cell_type %in% cell_types
+    sces[[i]] <- sces[[i]][shared_genes, to_keep]
+    colData(sces[[i]]) <- colData(sces[[i]])[, cols_to_keep]
+  }
+  
+  # save object with un-scaled lognorm counts
+  saveRDS(do.call(cbind, sces), file.path(obj_dir, "uc_lognorm_sce.rds"))
+  
+  outs <- multiBatchNorm(sces)
+  all_dec <- lapply(outs, modelGeneVar)
+  combined.dec <- combineVar(all_dec)
+  chosen.hvgs <- getTopHVGs(combined.dec, n=5000)
+  uc_sce <- do.call(cbind, outs)
+  set.seed(seed_val)
+  
+  mbpca <- multiBatchPCA(uc_sce,
+                         batch = uc_sce$study,
+                         subset.row = chosen.hvgs, 
+                         preserve.single = TRUE)
+  reducedDim(uc_sce, "PCA") <- mbpca[[1]]
+  set.seed(seed_val)
+  uc_sce <- runUMAP(uc_sce, dimred = "PCA", n_dimred = 30)
+  metadata(uc_sce)$hvgs <- list(dec = combined.dec,
+                                hvgs = chosen.hvgs)
+  
+  colData(uc_sce) <- cbind(colData(uc_sce), 
+                  perCellQCMetrics(uc_sce, 
+                                   subsets = list(Mito = grepl("^mt-",
+                                                               rownames(uc_sce)))))
+  uc_sce$random_order <- sample(1:ncol(uc_sce),
+                                ncol(uc_sce), 
+                                replace = FALSE)
+  
+  uc_sce$coarse_cell_type <- map_to_coarse[uc_sce$cell_type]
+  
+  old_mdata <- fread(here("docs/3.19.2021 Bioinformatics Analysis/cell-metadata.csv"),data.table = FALSE)
+  
+  reid <- c("Kobayashi_et_al_ncb" = 1,
+            "Riemondy_et_al_JCI-insight" = 3,
+            "Strunz_et_al_nc" = 4)
+
+  # add _[0-9]$ to cell ids to match seurat naming
+  uc_sce$old_id  <- paste0(colnames(uc_sce), 
+                           "_",
+                           reid[uc_sce$study])
+  uc_sce$old_clusters <- old_mdata$seurat_clusters[match(uc_sce$old_id, 
+                                                         old_mdata$cell)]
+  
+  # add old UMAP
+  um <- old_mdata[c("harmony_umap_1", "harmony_umap_2")]
+  reducedDim(uc_sce, "old_harmony_umap") <- um[match(uc_sce$old_id, 
+                                                     old_mdata$cell), ]
+  
+  oc <- uc_sce$old_clusters
+  # add label for coarse cell types from previous analysis
+  uc_sce$old_coarse_cell_types <- dplyr::case_when(
+    oc %in% as.character(0:4) ~ "AEC2",
+    stringr::str_detect(oc, "^5_") ~ "Transitional",
+    oc == "6" ~ "Proliferation",
+    oc == "7" ~ "Differentiation",
+    oc == "8" ~ "BASC",
+    TRUE ~ NA_character_)
+  igfbp2_pos <- which(logcounts(uc_sce)["Igfbp2", ] > 0)
+  uc_sce$old_coarse_cell_types[igfbp2_pos] <- "AEC1"
+  
+  metadata(uc_sce)$integration <- "none"
+  saveRDS(uc_sce, sce_fn)
+  sce <- uc_sce
+} else {
+  sce <- readRDS(sce_fn)
+}
+
+ps <- plot_correction_umaps(sce)
+```
+
+### All cells together
+
+```{r, echo = FALSE}
+ps$all
+```
+
+### Split by study
+
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study
+```
+
+```{r, echo = FALSE, fig.width = 9}
+ps$by_study_split
+```
+
+### Old general cell types
+
+```{r, echo = FALSE, fig.width = 9}
+ps$all_old
+```
+
+### Cell type Markers {.tabset}
+
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$genes)){
+  cat('\n#### ', names(ps$genes)[i], '\n')
+  print(ps$genes[i])
+  cat('\n')
+}
+```
+
+### CCA Markers {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$cca_genes)){
+  cat('\n#### ', names(ps$cca_genes)[i], '\n')
+  print(ps$cca_genes[i])
+  cat('\n')
+}
+```
+
+### Activation Markers {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(ps$act_genes)){
+  cat('\n#### ', names(ps$act_genes)[i], '\n')
+  print(ps$act_genes[i])
+  cat('\n')
+}
+```
+
+## fastMNN integration 
+
+fastMNN does a good job integrating the most interesting populations, e.g. transitional, differentiating, proliferating, and BASC, however the AEC2 cells don't integrate very well, even with aggressive integration settings (k = 100).
+
+```{r}
+sce_fn <- file.path(obj_dir, "mnn_sce.rds")
+
+if(!file.exists(sce_fn)){
+  bpp <- BiocParallel::MulticoreParam(6)
+  set.seed(seed_val)
+  uc_sce <- readRDS(file.path(obj_dir, "uc_sce.rds"))
+  study_order <- c( "Kobayashi_et_al_ncb", "Riemondy_et_al_JCI-insight", "Strunz_et_al_nc")
+  uc_sce$study <- factor(uc_sce$study, levels = study_order)
+  quick.corrected <- quickCorrect(uc_sce, 
+                                  batch = uc_sce$study,
+                                  correct.all = TRUE,
+                                  PARAM = FastMnnParam(BPPARAM = bpp, 
+                                                       d = 20,
+                                                       k = 100,
+                                                       auto.merge = FALSE),
+                                  hvg.args = list(n = 3000))
+  mnn_sce <- quick.corrected$corrected
+  set.seed(seed_val)
+  mnn_sce <- runUMAP(mnn_sce, dimred="corrected", n_dimred = 20)
+  
+  mnn_sce$batch <- factor(mnn_sce$batch)
+  stopifnot( all(colnames(uc_sce) == colnames(mnn_sce)))
+  colData(mnn_sce) <- colData(uc_sce)
+  
+  assay(mnn_sce, "counts") <- assay(uc_sce, "counts")
+  assay(mnn_sce, "logcounts") <- assay(uc_sce, "logcounts")
+  
+  snn.gr <- buildSNNGraph(mnn_sce, use.dimred="corrected")
+  cl <- igraph::cluster_walktrap(snn.gr)
+  metadata(mnn_sce)$wlktrp <- cl
+  mnn_sce$mnn_clusters <- as.factor(cl$membership)
+  metadata(mnn_sce)$integration <- "fastMNN"
+  saveRDS(mnn_sce, sce_fn)
+  sce <- mnn_sce
+} else {
+  sce <- readRDS(sce_fn)
+}
+
+ps <- plot_correction_umaps(sce)
+```
+
+
+```{r, echo=FALSE, results='asis'}
+res <- knitr::knit_child('integration-analyses.Rmd', quiet = TRUE)
+cat(res, sep = '\n')
+```
+
+## Harmony integration
+
+Harmony also does a good job integrating most of the populations and pulls out the most mature AEC1 population into a well separated cluster. 
+
+```{r}
+sce_fn <- file.path(obj_dir, "hm_sce.rds")
+
+if(!file.exists(sce_fn)){
+
+  library(harmony)
+  set.seed(seed_val)
+  uc_sce <- readRDS(file.path(obj_dir, "uc_sce.rds"))
+  chosen.hvgs <- getTopHVGs(metadata(uc_sce)$hvg$dec, n = 3000)
+  hm_sce <- uc_sce
+  hm_sce <- multiBatchNorm(hm_sce, batch = hm_sce$study)
+  set.seed(seed_val)
+  reducedDims(hm_sce)$PCA <- multiBatchPCA(hm_sce, 
+                                            batch = hm_sce$study, 
+                                            d = 30, 
+                                            subset.row = chosen.hvgs,
+                                            preserve.single = TRUE)[[1]]
+  
+  set.seed(seed_val)
+  hrm_embed <- HarmonyMatrix(reducedDims(hm_sce)$PCA[, 1:20],
+                             meta_data = hm_sce$study,
+                             theta = 4,
+                             lambda = 0.5,
+                             do_pca = FALSE)
+  reducedDim(hm_sce, "harmony") <- hrm_embed
+  set.seed(seed_val)
+  hm_sce <- runUMAP(hm_sce, dimred="harmony", n_dimred = 20)
+  
+  snn.gr <- buildSNNGraph(hm_sce, use.dimred="harmony")
+  cl <- igraph::cluster_walktrap(snn.gr)
+  metadata(hm_sce)$wlktrp <- cl
+  hm_sce$hm_clusters <- as.factor(cl$membership)
+  metadata(hm_sce)$integration <- "harmony"
+  
+  saveRDS(hm_sce, sce_fn)
+  sce <- hm_sce
+} else {
+  sce <- readRDS(sce_fn)
+}
+  
+ps <- plot_correction_umaps(sce)
+```
+
+
+```{r, echo=FALSE, results='asis'}
+res <- knitr::knit_child('integration-analyses.Rmd', quiet = TRUE)
+cat(res, sep = '\n')
+```
+    
+## scVI integration
+
+`scVI` is an unsupervised integration approach. It is also a precursor step to running `scANVI` below. 
+
+```{r}
+sce_fn <- file.path(obj_dir, "20221230_scvi_sce.rds")
+
+if(!file.exists(sce_fn)){
+  # generated via google colab to allow use of GPU
+  # scvi/scvi.ipynb
+  scvi_mat <- fread("scvi/20221230_scvi.csv.gz", data.table = FALSE) |>
+    as.matrix()
+  colnames(scvi_mat) <- paste0("scvi_", 1:ncol(scvi_mat))
+  uc_sce <- readRDS(file.path(obj_dir, "uc_sce.rds"))
+  scvi_sce <- uc_sce
+  reducedDim(scvi_sce, "scvi") <- scvi_mat
+
+  set.seed(seed_val)
+  scvi_sce <- runUMAP(scvi_sce,
+                      dimred = "scvi",
+                      n_dimred = ncol(scvi_mat))
+  
+  snn.gr <- buildSNNGraph(scvi_sce, use.dimred="scvi")
+  cl <- igraph::cluster_walktrap(snn.gr)
+  metadata(scvi_sce)$wlktrp <- cl
+  scvi_sce$scvi_clusters <- as.factor(cl$membership)
+  metadata(scvi_sce)$integration <- "scvi"
+  saveRDS(scvi_sce, sce_fn)
+  sce <- scvi_sce
+  
+} else {
+  sce <- readRDS(sce_fn)
+}
+
+ps <- plot_correction_umaps(sce)
+```
+
+```{r, echo=FALSE, results='asis'}
+res <- knitr::knit_child('integration-analyses.Rmd', quiet = TRUE)
+cat(res, sep = '\n')
+```
+
+
+## scANVI integration 
+
+`scANVI` is a semi-supervised integration and annotation approach. It therefore requires some pre-labeled cell types to perform integration. I've follow the approach used for the HCA Lung Atlas paper which used "coarse cell type labels". Shown below is how I mapped the study specific cell type names to coarse labels, either (AEC1, AEC2, Transitional, differentiating, or proliferating). The AEC1 cells from Kobayashi and Strunz were left as "Unknown" as it's not clear if these are mature or differentiating AEC1 cells. In contrast, in the JCI insight study, AEC1 cells were flow sorted, which likely preserved these fragile cells in the dataset.
+
+```{r, rows.print = 100, cols.min.print = 2}
+library(stringr)
+data.frame(original_cell_type = paste0(str_split(sce$study, "_") |> purrr::map_chr(1), 
+                                       ": ", 
+                                       sce$cell_type), 
+           coarse_cell_type = sce$coarse_cell_type,
+           row.names = NULL) |>
+  unique()
+```
+
+```{r}
+sce_fn <- file.path(obj_dir, "20221230_scanvi_sce.rds")
+
+if(!file.exists(sce_fn)){
+   # generated via google colab to allow use of GPU
+  # scvi/scvi.ipynb
+  scanvi_mat <- fread("scvi/20221230_scanvi.csv.gz", data.table = FALSE) |>
+    as.matrix()
+  colnames(scanvi_mat) <- paste0("scanvi_", 1:ncol(scanvi_mat))
+  uc_sce <- readRDS(file.path(obj_dir, "uc_sce.rds"))
+  scanvi_sce <- uc_sce
+  reducedDim(scanvi_sce, "scanvi") <- scanvi_mat
+
+  set.seed(20221220)
+  scanvi_sce <- runUMAP(scanvi_sce,
+                        dimred = "scanvi",
+                        n_dimred = ncol(scanvi_mat))
+  
+  snn.gr <- buildSNNGraph(scanvi_sce, use.dimred="scanvi")
+  cl <- igraph::cluster_walktrap(snn.gr)
+  metadata(scanvi_sce)$wlktrp <- cl
+  scanvi_sce$scanvi_clusters <- as.factor(cl$membership)
+  metadata(scanvi_sce)$integration <- "scanvi"
+  saveRDS(scanvi_sce, sce_fn)
+  sce <- scanvi_sce
+} else {
+  sce <- readRDS(sce_fn)
+}
+
+ps <- plot_correction_umaps(sce)
+```
+
+```{r, echo=FALSE, results='asis'}
+res <- knitr::knit_child('integration-analyses.Rmd', quiet = TRUE)
+cat(res, sep = '\n')
+```
+
+## Marker tables
+
+For this analysis I've used findMarkers from the scran package to rank marker genes. This approach will compute differential expression across all pairwise cluster comparisons, making it more sensitive than Seurat or Presto's approach. It also can handle multiple batches, so that we can ensure that the markers found in each cluster are present in all datasets. 
+
+The output is much more complex than Seurat, so I've written an extended document on the output ("tables/findMarkers_information.md"). In the tables directory there are excel spreadsheets for each integration method.
+
+## Summary
+
+In general all of the integrations seemed to generally work, with varying levels of 
+integration of naive AEC2 populations. Regardless of method used the transitional cell types are generally present.
+
+For scanVI, at a clustering setting that produces 7 clusters, these can be labeled as:  
+
+1: Proliferating  
+2: Transitional  
+3: BASC   
+4: AEC2  
+5: Differentiating   
+6: AEC1. (only in riemondy and strunz et al)   
+7: Club (Foxj1+, only in strunz et al)   
+
+At higher clustering (e.g. 9 clusters) a subpopulation appears 
+that matches the abberent baseloid population (cluster 7 ) and is found in all 
+studies.  
+
+## session info
+
+<details><summary>Show session info</summary>
+
+```{r code}
+sessionInfo()
+```
+
+</details>
+

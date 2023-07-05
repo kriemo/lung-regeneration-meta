@@ -1,0 +1,371 @@
+---
+title: "Meta-analysis of murine lung regeneration studies: Additional analysis"
+author: "Kent Riemondy"
+date: "`r Sys.Date()`"
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "html") })
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: cosmo
+    highlight: kate
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = FALSE)
+```
+
+```{r, results = 'hide', message = FALSE, warnings = FALSE}
+library(ComplexHeatmap)
+library(SingleCellExperiment)
+library(scran)
+library(scuttle)
+library(scater)
+library(batchelor)
+library(data.table)
+library(here)
+library(openxlsx)
+library(cowplot)
+data_dir <- here("data")
+formatted_data_dir <- "processed_data"
+fig_dir <- "figs"
+obj_dir <- "objects"
+mkrs_dir <- "tables"
+```
+
+## Heatmaps (scVI)
+
+Using 8 clusters.
+
+```{r}
+scvi_sce <- readRDS(file.path(obj_dir, "20221230_scvi_sce.rds"))
+scanvi_sce <- readRDS(file.path(obj_dir, "20221230_scanvi_sce.rds"))
+```
+
+
+```{r}
+fig_7b_genes <- c("Cdkn1a", "Cdkn2a", "Cdkn2b", "Trp53")
+
+fig_7d_genes <- c("Fn1", "Tmsb10", "Clu", "Ctgf", "Igfbp6", "Sox4", "Crlf1", "Pmepa1", "Adgrg1", "Tmsb4x", "Sfn", "Lgals1", "Rab1a", "Cldn4", "Rsrp1", "Sparc", "Fblim1", "Cyba", "Ramp1", "Pdgfb", "Serpinb9", "Lpcat4", "Ntm", "Marcksl1", "Mcam", "Pdlim7")
+
+fig_7j_genes <- c("Krt17", "Tpm1", "Sox4", "Cald1", "Sfn", "Fhl2", "Plau", "Phlda2", "Itga2", "Lamb3", "S100a2", "Atf3", "Zfp36l2", "Tpm4", "Palld", "Cdh3", "Ier3")
+
+# fig_7l_genes <- c("Hopx", "Igfbp2", "Pdpn", "Sftpc", "Lamp3", "Sftpb", "Sftpd", "Abca3", "Itgb6", "Cldn4", "Krt8", "Krt7", "Tpm1", "Cald1", "Fhl2", "S100a2", "Tpm4", "Krt17", "Lamb3", "Zfp36l2", "Itga2")
+
+fig_7l_genes <- c("Sftpc", "Lamp3", "Sftpb", "Sftpd", "Abca3", "Itgb6", "Cldn4", "Krt8", "Krt7", "Tpm1", "Cald1", "Fhl2", "S100a2", "Tpm4", "Krt17", "Lamb3", "Zfp36l2", "Itga2")
+
+
+genes_to_plot <- list(fig_7b_genes = fig_7b_genes,
+                      fig_7d_genes = fig_7d_genes,
+                      fig_7j_genes = fig_7j_genes,
+                      fig_7l_genes = fig_7l_genes)
+
+genes_to_plot <- lapply(genes_to_plot, function(x){
+  missing_genes <- setdiff(x, rownames(scvi_sce))
+  if(length(missing_genes) > 0){
+    msg <- paste0(missing_genes, collapse = ", ")
+    warning("unable to find ", msg, " in matrix")
+  }
+  intersect(x, rownames(scvi_sce))
+})
+
+
+for(i in seq_along(genes_to_plot)){
+  id <- names(genes_to_plot)[i]
+  gns <- genes_to_plot[[i]]
+  p <- plotGroupedHeatmap(scvi_sce,
+                          features = gns, 
+                          group = "clusters_8",
+                          center = TRUE,
+                          scale = TRUE, 
+                          zlim = c(-2.5, 2.5), 
+                          cluster_cols = FALSE,
+                          cluster_rows = FALSE,
+                          colour = viridis::magma(101), 
+                     main = id)
+  p
+}
+
+```
+
+<br>
+<br>
+
+## Heatmaps (scanVI)
+
+Using 9 clusters. 
+
+```{r}
+
+for(i in seq_along(genes_to_plot)){
+  id <- names(genes_to_plot)[i]
+  gns <- genes_to_plot[[i]]
+  plotGroupedHeatmap(scanvi_sce,
+                          features = gns, 
+                          group = "clusters_9",
+                          center = TRUE,
+                          scale = TRUE, 
+                          zlim = c(-2.5, 2.5), 
+                          cluster_cols = FALSE,
+                          cluster_rows = FALSE,
+                          colour = viridis::magma(101), 
+                          main = id)
+}
+
+```
+
+## Compare transitional to abberant baseloid cells
+
+Using 8 clusters for scvi and 9 clusters for scanVI. The transitional cells are in cluster 7 (for both) and the abberant basaloid cells are in cluster 1 (both integrations)
+
+
+### scvi 
+
+```{r}
+int_method <- "scvi"
+tmp_sce <- scvi_sce[, scvi_sce$clusters_8 %in% c("7", "1")]
+mkrs <- findMarkers(tmp_sce, tmp_sce$clusters_8,
+                    block = tmp_sce$study,
+                    add.summary = TRUE) |>
+  lapply(function(x){
+        x <- as.data.frame(x)  
+        x <- cbind(gene = rownames(x), x)
+        x <-  x[x$FDR < 0.05, ]
+        x <- x[order(-x$summary.logFC, x$FDR), ]
+        x[c("gene", "p.value", "FDR", "summary.logFC", "self.average",
+            "other.average", "self.detected", "other.detected")]
+      })
+mkrs <- mkrs[2]
+
+names(mkrs) <- "ab_basaloid(7)_v_trans(1)"
+
+mkrs |> 
+  rbindlist(use.names = TRUE, idcol = "cluster") |>
+  fwrite(file.path(mkrs_dir, int_method,
+                   "aberrant_basaloid_v_transitional_markers.csv"), sep = ",")
+    
+openxlsx::write.xlsx(mkrs, file.path(mkrs_dir, 
+                                         int_method, 
+                                         "aberrant_basaloid_v_transitional_markers.xlsx"),
+                         overwrite = TRUE)
+```
+
+### Heatmap (top 30)
+
+Top 30 genes ranked on fold-change 
+
+```{r}
+gns <- mkrs[[1]][1:30, ]$gene
+plotGroupedHeatmap(scvi_sce,
+                   features = gns, 
+                   group = "clusters_8",
+                   center = TRUE,
+                   scale = TRUE, 
+                   zlim = c(-2.5, 2.5), 
+                   cluster_cols = FALSE,
+                   colour = viridis::magma(101), 
+                   main = "Abberant Basaloid (c7) v Transitional (c1)")
+```
+
+### Violin plots per gene (top 30) {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(gns)){
+  cat('\n#### ', gns[i], '\n')
+  p <- plotExpression(scvi_sce, 
+                      x = "clusters_8", 
+                      features = gns[i], 
+                      color_by = "clusters_8") +
+    theme(legend.position = "none")
+  print(p)
+  cat('\n')
+}
+```
+
+
+### distribution of cells in clusters
+
+```{r}
+table(scvi_sce$clusters_8, scvi_sce$study)
+```
+
+### scanvi 
+
+```{r}
+int_method <- "scanvi"
+tmp_sce <- scanvi_sce[, scanvi_sce$clusters_9 %in% c("7", "1")]
+mkrs <- findMarkers(tmp_sce, tmp_sce$clusters_9,
+                    block = tmp_sce$study,
+                    add.summary = TRUE) |>
+  lapply(function(x){
+        x <- as.data.frame(x)  
+        x <- cbind(gene = rownames(x), x)
+        x <-  x[x$FDR < 0.05, ]
+        x <- x[order(-x$summary.logFC, x$FDR), ]
+        x[c("gene", "p.value", "FDR", "summary.logFC", "self.average",
+            "other.average", "self.detected", "other.detected")]
+      })
+mkrs <- mkrs[2]
+
+names(mkrs) <- "ab_basaloid(7)_v_trans(1)"
+
+mkrs |> 
+  rbindlist(use.names = TRUE, idcol = "cluster") |>
+  fwrite(file.path(mkrs_dir, int_method,
+                   "aberrant_basaloid_v_transitional_markers.csv"), sep = ",")
+    
+openxlsx::write.xlsx(mkrs, file.path(mkrs_dir, 
+                                         int_method, 
+                                         "aberrant_basaloid_v_transitional_markers.xlsx"),
+                         overwrite = TRUE)
+    
+```
+
+
+### Heatmap (top 30)
+
+Top 30 genes ranked on fold-change 
+
+```{r}
+gns <- mkrs[[1]][1:30, ]$gene
+plotGroupedHeatmap(scanvi_sce,
+                   features = gns, 
+                   group = "clusters_9",
+                   center = TRUE,
+                   scale = TRUE, 
+                   zlim = c(-2.5, 2.5), 
+                   cluster_cols = FALSE,
+                   colour = viridis::magma(101), 
+                   main = "Abberant Basaloid (c7) v Transitional (c1)")
+```
+
+### Violin plots per gene (top 30) {.tabset}
+
+```{r, results ='asis', echo = FALSE}
+for(i in seq_along(gns)){
+  cat('\n#### ', gns[i], '\n')
+  p <- plotExpression(scanvi_sce, 
+                      x = "clusters_9", 
+                      features = gns[i], 
+                      color_by = "clusters_9") +
+    theme(legend.position = "none")
+  print(p)
+  cat('\n')
+}
+```
+
+### distribution of cells in clusters
+
+```{r}
+table(scanvi_sce$clusters_9, scanvi_sce$study)
+```
+
+
+## Examine ABI gene modules
+
+The "early differentiating" population from teh JCI-insight paper will be split into 2 subclusters. Top markers will be identified and used as a gene module to examine 
+
+```{r}
+sce.lps <- readRDS(here("data/Riemondy_et_al_JCI-insight/sce.rds"))
+
+reducedDims(sce.lps)$TSNE <- colData(sce.lps)[c("tSNE_1", "tSNE_2")]
+
+sce.lps <- logNormCounts(sce.lps)
+dec <- modelGeneVar(sce.lps)
+hvgs <- getTopHVGs(dec, n=3000)
+set.seed(10000)
+sce.lps <- denoisePCA(sce.lps, subset.row = hvgs, technical = dec)
+
+set.seed(1000000)
+sce.lps <- runUMAP(sce.lps, dimred="PCA")
+
+g <- buildSNNGraph(sce.lps, k=10, use.dimred = 'PCA')
+clust <- igraph::cluster_walktrap(g)
+metadata(sce.lps)$clustering <- clust
+
+colLabels(sce.lps) <- factor(metadata(sce.lps)$clustering$membership)
+plotTSNE(sce.lps, colour_by = "label")
+```
+
+```{r}
+sce.lps$subclusters <- ifelse(as.character(sce.lps$label) %in% c("12", "16", "25"),
+                                         paste0("abi_",as.character(sce.lps$label)),
+                                                as.character(sce.lps$pretty_cell_labels))
+plotTSNE(sce.lps, colour_by = "subclusters")
+```
+
+
+```{r}
+markers <- findMarkers(sce.lps, group = sce.lps$subclusters, pval.type = "some", min.prop = 0.7, direction = "up")
+
+all_mkrs <- presto::wilcoxauc(sce.lps, "subclusters")
+
+mkrs <- all_mkrs[all_mkrs$logFC > 0 & all_mkrs$padj < 0.05, ] 
+tip_genes_presto <- mkrs[mkrs$group == "abi_16", ]
+tip_genes_presto <- tip_genes_presto[order(tip_genes_presto$padj, -tip_genes_presto$logFC), ]
+tip_genes_presto <- tip_genes_presto$feature[1:200]
+
+abi_mrks <- list(tip_genes_fm = rownames(markers$abi_16[1:200, ]),
+                 tip_genes_presto = tip_genes_presto)
+
+abi_mrks <- lapply(abi_mrks, intersect, rownames(scvi_sce))
+
+```
+
+```{r}
+aggr <- sumCountsAcrossFeatures(sce.lps,
+                                abi_mrks, 
+                                exprs_values="logcounts", average=TRUE)
+
+plotTSNE(sce.lps, colour_by = I(aggr["tip_genes_presto", ]))
+```
+
+```{r}
+sce.bleo <- readRDS(here("data/Strunz_et_al_nc/sce.rds"))
+reducedDims(sce.bleo)$UMAP <- colData(sce.bleo)[c("umap_1", "umap_2")]
+plotUMAP(sce.bleo, colour_by = "cell_type")
+```
+
+```{r}
+aggr <- sumCountsAcrossFeatures(sce.bleo, abi_mrks, exprs_values="logcounts", average=TRUE)
+
+plotUMAP(sce.bleo, colour_by = I(aggr["tip_genes_fm", ]))
+```
+
+```{r}
+sce.org <- readRDS(here("data/Kobayashi_et_al_ncb/sce.rds"))
+sce.org <- logNormCounts(sce.org)
+dec <- modelGeneVar(sce.org)
+hvgs <- getTopHVGs(dec, n=3000)
+set.seed(10000)
+sce.org <- denoisePCA(sce.org, subset.row = hvgs, technical = dec)
+
+set.seed(1000000)
+sce.org <- runUMAP(sce.org, dimred="PCA")
+
+plotUMAP(sce.org, colour_by = "cell_type")
+```
+
+```{r}
+aggr <- sumCountsAcrossFeatures(sce.org, abi_mrks, exprs_values="logcounts", average=TRUE)
+
+plotUMAP(sce.org, colour_by = I(aggr["tip_genes_fm", ]))
+```
+
+
+## session info
+
+<details><summary>Show session info</summary>
+
+```{r code}
+sessionInfo()
+```
+
+</details>
+

@@ -1,0 +1,300 @@
+---
+title: "Meta-analysis of murine lung regeneration studies: Slingshot pseudotime"
+author: "Kent Riemondy"
+date: "`r Sys.Date()`"
+knit: (function(inputFile, encoding) {
+  rmarkdown::render(inputFile, encoding = encoding, output_dir = "html") })
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    theme: cosmo
+    highlight: kate
+    fig_caption: true
+    code_folding: hide
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = FALSE)
+```
+
+```{r, results = 'hide', message = FALSE, warning = FALSE}
+library(ComplexHeatmap)
+library(SingleCellExperiment)
+library(scran)
+library(scuttle)
+library(scater)
+library(batchelor)
+library(data.table)
+library(here)
+library(openxlsx)
+library(cowplot)
+library(slingshot)
+data_dir <- here("data")
+formatted_data_dir <- "processed_data"
+fig_dir <- "figs"
+obj_dir <- "objects"
+mkrs_dir <- "tables"
+dir.create("objects/pt", recursive = TRUE)
+source(here("results/funs.R"))
+```
+
+## Pseudotime
+
+Pseudotime analysis will be performed using [`slingshot`](https://bioconductor.org/packages/release/bioc/html/slingshot.html). The start point of the trajectories will be set to the naive AEC2 cells from the JCI insight manuscript. 
+
+## scvi 
+
+
+```{r, fig.cap="UMAP showing inferred lineages, colored by average pseudotime across all lineages"}
+scvi_sce <- readRDS(file.path(obj_dir, "20221230_scvi_sce.rds"))
+scvi_sce <- scvi_sce[, scvi_sce$clusters_8 != "8"]
+scvi_sce$pt_labels <- ifelse(scvi_sce$cell_type == "Naive AEC2",
+                             "Naive AE2",
+                             scvi_sce$clusters_8)
+if(!file.exists("objects/pt/scvi.rds")){
+  sce.sling <- slingshot(scvi_sce,
+                       start.clus = "Naive AE2",
+                       clusterLabels = 'pt_labels', 
+                       reducedDim = 'scvi')
+
+  saveRDS(sce.sling, "objects/pt/scvi.rds")
+} else {
+  sce.sling <- readRDS("objects/pt/scvi.rds")
+}
+
+pseudo.paths <- slingPseudotime(sce.sling)
+
+# average pseudotime over all lineages
+shared.pseudo <- rowMeans(pseudo.paths, na.rm=TRUE)
+
+embedded <- embedCurves(sce.sling, "UMAP", stretch = 3)
+
+lin_names <- colnames(colData(sce.sling))[grepl("slingPseudotime",
+                                                colnames(colData(sce.sling)))]
+
+gg <- plotUMAP(sce.sling, colour_by=I(shared.pseudo))
+#gg <- plotUMAP(sce.sling, colour_by="coarse_cell_type")
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  gg <- gg + geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+}
+gg
+
+
+```
+
+
+```{r, fig.cap = "UMAP showing linaeages overlayed over the coarse cell types"}
+gg <- plotUMAP(sce.sling, colour_by="coarse_cell_type")
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  gg <- gg + geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+}
+gg
+```
+
+```{r, fig.cap = "UMAP showing linaeages overlayed over the clusters (note that cluster 8 was removed as it was likely club cells"}
+gg <- plotUMAP(sce.sling, colour_by="clusters_8")
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  gg <- gg + geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+}
+gg
+```
+
+
+```{r, fig.cap="UMAPs showing each lineage separately, colored by pseudotime for the lineage"}
+plts <- list()
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  p <- plotUMAP(sce.sling, colour_by=lin) + 
+    geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+  plts[[i]] <- p
+}
+plot_grid(plotlist = plts)
+```
+
+## scanvi
+
+
+```{r, fig.cap="UMAP showing inferred lineages, colored by average pseudotime across all lineages"}
+
+scanvi_sce <- readRDS(file.path(obj_dir, "20221230_scanvi_sce.rds"))
+scanvi_sce <- scanvi_sce[, scanvi_sce$clusters_9 != "9"]
+scanvi_sce$pt_labels <- ifelse(scanvi_sce$cell_type == "Naive AEC2",
+                             "Naive AE2",
+                             scanvi_sce$clusters_9)
+
+if(!file.exists("objects/pt/scanvi.rds")){
+  sce.sling <- slingshot(scanvi_sce,
+                       start.clus = "Naive AE2",
+                       clusterLabels = 'pt_labels', 
+                       reducedDim = 'scanvi')
+
+
+  saveRDS(sce.sling, "objects/pt/scanvi.rds")
+} else {
+  sce.sling <- readRDS("objects/pt/scanvi.rds")
+}
+
+pseudo.paths <- slingPseudotime(sce.sling)
+
+# average pseudotime over all lineages
+shared.pseudo <- rowMeans(pseudo.paths, na.rm=TRUE)
+
+embedded <- embedCurves(sce.sling, "UMAP")
+
+lin_names <- colnames(colData(sce.sling))[grepl("slingPseudotime",
+                                                colnames(colData(sce.sling)))]
+
+gg <- plotUMAP(sce.sling, colour_by=I(shared.pseudo))
+gg <- plotUMAP(sce.sling, colour_by="coarse_cell_type")
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  gg <- gg + geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+}
+gg
+```
+
+```{r, fig.cap = "UMAP showing linaeages overlayed over the coarse cell types"}
+gg <- plotUMAP(sce.sling, colour_by="coarse_cell_type")
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  gg <- gg + geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+}
+gg
+```
+
+```{r, fig.cap = "UMAP showing lineages overlayed over the clusters (note that cluster 9 was removed as it is most likely club cells"}
+gg <- plotUMAP(sce.sling, colour_by="clusters_9")
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  gg <- gg + geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+}
+gg
+```
+
+
+```{r, fig.cap="UMAPs showing each lineage separately, colored by pseudotime for the lineage"}
+
+plts <- list()
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  p <- plotUMAP(sce.sling, colour_by=lin) + 
+    geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+  plts[[i]] <- p
+}
+plot_grid(plotlist = plts)
+```
+
+
+
+## harmony
+
+
+```{r, fig.cap="UMAP showing inferred lineages, colored by average pseudotime across all lineages"}
+hm_sce <- readRDS(file.path(obj_dir, "hm_sce.rds"))
+hm_sce$pt_labels <- ifelse(hm_sce$cell_type == "Naive AEC2",
+                             "Naive AE2",
+                             hm_sce$clusters_8)
+
+if(!file.exists("objects/pt/harmony.rds")){
+  sce.sling <- slingshot(hm_sce,
+                       start.clus = "Naive AE2",
+                       clusterLabels = 'pt_labels', 
+                       reducedDim = 'harmony')
+
+
+  saveRDS(sce.sling, "objects/pt/harmony.rds")
+} else {
+  sce.sling <- readRDS("objects/pt/harmony.rds")
+}
+pseudo.paths <- slingPseudotime(sce.sling)
+
+# average pseudotime over all lineages
+shared.pseudo <- rowMeans(pseudo.paths, na.rm=TRUE)
+
+embedded <- embedCurves(sce.sling, "UMAP")
+
+lin_names <- colnames(colData(sce.sling))[grepl("slingPseudotime",
+                                                colnames(colData(sce.sling)))]
+
+gg <- plotUMAP(sce.sling, colour_by=I(shared.pseudo))
+gg <- plotUMAP(sce.sling, colour_by="coarse_cell_type")
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  gg <- gg + geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+}
+gg
+
+```
+
+
+```{r, fig.cap = "UMAP showing linaeages overlayed over the cell types"}
+gg <- plotUMAP(sce.sling, colour_by="coarse_cell_type")
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  gg <- gg + geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+}
+gg
+```
+
+```{r, fig.cap="UMAPs showing each lineage separately, colored by pseudotime for the lineage"}
+plts <- list()
+for(i in seq_along(lin_names)){
+  lin <- lin_names[i]
+  scurve <- slingCurves(embedded)[[i]] # only 1 path.
+  curve_coords <- data.frame(scurve$s[scurve$ord,])
+  p <- plotUMAP(sce.sling, colour_by=lin) + 
+    geom_path(data=curve_coords, aes(x=Dim.1, y=Dim.2), linewidth=1)
+  plts[[i]] <- p
+}
+plot_grid(plotlist = plts)
+```
+
+
+## Summary 
+
+Pseudotime results for scvi and scanvi integrations show trajectories that go
+
+AEC2 -> differentiating -> AEC1   
+AEC2 -> proliferating   
+AEC2 -> transitional   
+AEC2 -> transitional   
+
+The harmony projection has a trajectory from AEC2 -> AEC2. 
+
+## session info
+
+<details><summary>Show session info</summary>
+
+```{r code}
+sessionInfo()
+```
+
+</details>
+
