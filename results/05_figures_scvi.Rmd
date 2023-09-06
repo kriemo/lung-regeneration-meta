@@ -1208,7 +1208,7 @@ save_plots(
 p
 ```
 
-Other heatmaps
+Other heatmaps and UMAPs 
 
 ```{r}
 gns <- c("Tmem212", "Dynlrb2")
@@ -1242,6 +1242,25 @@ hmap <- Heatmap(zs,
 print(hmap)
 d <- dev.off()
 hmap
+```
+
+```{r}
+plts <- lapply(seq_along(gns), function(i) {
+  gn <- gns[i]
+  p <- plot_mrks(sce, gn)
+  
+  save_plots(
+    file.path(fig_dir, paste0("Other-", gn, "-umap")),
+    p,
+    base_asp = 0.8, base_height = 3.25,
+    nrow = 1,
+    ncol = 4
+  )
+  p
+})
+
+names(plts) <- gns
+plts
 ```
 
 # Summary files 

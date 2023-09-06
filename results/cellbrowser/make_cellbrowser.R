@@ -5,7 +5,12 @@ library(here)
 library(data.table)
 library(readr)
 scvi_sce <- readRDS(here("results", "objects", "20221230_scvi_sce.rds"))
-scanvi_sce <- readRDS(here("results", "objects", "20221230_scanvi_sce.rds"))
+
+strunz_mdat <- colData(readRDS(file.path(here("data",
+                                         "Strunz_et_al_nc", 
+                                         "sce.rds"))))
+
+scvi_sce$strunz_et_al_timepoint <- strunz_mdat[colnames(scvi_sce), ]$time_point
 
 
 write_config <- function(x, path){
@@ -13,7 +18,7 @@ write_config <- function(x, path){
     writeLines(path)
 }
 
-cb_outdir <- here("results", "cellbrowser")
+cb_outdir <- here("results", "cellbrowser-pub")
 
 collection_cb <- c(shortLabel="Meta-analysis of murine lung regeneration")
 collection_desc <- c(title="Meta-analysis of murine lung regeneration",
@@ -52,6 +57,7 @@ prep_cb <- function(sce,
     `UMIs per cell` = "nCount_originalexp",
     `Published cell type` = "cell_type",
     `Study` = "study",
+    `Timepoint (Strunz et al)` = "strunz_et_al_timepoint",
     `Clusters` = cluster_col)
 
   if(endsWith(mrk_file, ".csv")){
@@ -73,8 +79,7 @@ prep_cb <- function(sce,
                    marker_file = mrk_file,
                    ident = "Clusters",
                    embeddings = embeddings,
-                   skip_expr_matrix = TRUE,
-                  # config = list(priority = 1),
+                   skip_expr_matrix = FALSE,
                    description = list(
                      title = paste0(integration, " integration"),
                      description = paste0("10x genomics data integrated with ", integration)
@@ -90,16 +95,6 @@ prep_cb(scvi_sce,
         integration = "scvi",
         mrk_file = here("results/tables/scvi/clusters_8_markers.csv"))
 
-# scanvi
-prep_cb(scanvi_sce,
-        cluster_col = "clusters_9",
-        study_col = "study",
-        integration = "scanvi",
-        mrk_file = here("results/tables/scanvi/clusters_9_markers.csv"))
-
-
-
-build_cellbrowser(c(file.path(cb_outdir, "lung-meta-scvi/cellbrowser.conf"),
-                    file.path(cb_outdir, "lung-meta-scanvi/cellbrowser.conf")),
+build_cellbrowser(c(file.path(cb_outdir, "lung-meta-scvi/cellbrowser.conf")),
                   file.path(cb_outdir,"lung-meta-cb"),
                   "/usr/local/bin/cbBuild")
